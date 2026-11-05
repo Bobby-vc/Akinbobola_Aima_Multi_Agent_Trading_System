@@ -40,3 +40,40 @@ def test_run_is_saved_even_if_monitor_fails(temp_db, monkeypatch):
     run_hooks({"ticker": "AMD"}, NS(raw="final", tasks_output=[]))
 
     assert db.get_crew_runs()[0]["ticker"] == "AMD"
+
+
+def test_run_tracks_the_threshold_and_advisor_signal(temp_db, monkeypatch):
+    import first_ai_agents.monitor as monitor
+    monkeypatch.setattr(crew_module, "get_alpaca_api", lambda: "api")
+    monkeypatch.setattr(crew_module, "run_checks", lambda api: [])
+    crew = crew_module.FirstAiAgents().crew()
+
+    for callback in crew.before_kickoff_callbacks:
+        callback({"ticker": "NVDA", "confidence_threshold": "0.8"})
+    assert monitor._active_run == {"threshold": 0.8, "signal": None}
+
+    advisor_task = crew.tasks[0]
+    advisor_task.callback(NS(raw="SENTIMENT: BULLISH\nTRADE SIGNAL: BUY NVDA | Qty: 5 | Confidence: 0.91"))
+    assert monitor._active_run["signal"]["confidence"] == 0.91
+
+    for callback in crew.after_kickoff_callbacks:
+        callback(NS(raw="final", tasks_output=[]))
+    assert monitor._active_run is None
+    assert db.get_crew_runs()[0]["threshold"] == 0.8
+
+
+def test_threshold_defaults_to_0_7():
+    import first_ai_agents.monitor as monitor
+    crew = crew_module.FirstAiAgents().crew()
+    for callback in crew.before_kickoff_callbacks:
+        inputs = callback({"ticker": "NVDA"})
+    assert inputs["confidence_threshold"] == 0.7
+    assert monitor._active_run["threshold"] == 0.7
+
+
+def test_invalid_threshold_stops_the_run():
+    import pytest
+    crew = crew_module.FirstAiAgents().crew()
+    with pytest.raises(ValueError):
+        for callback in crew.before_kickoff_callbacks:
+            callback({"ticker": "NVDA", "confidence_threshold": 7})

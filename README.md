@@ -50,11 +50,15 @@ Risk Monitor post-run checks
 
 The Risk Monitor applies fixed rules instead of model reasoning, so the Trader cannot talk its way past them. Before any order is submitted, it blocks the order if:
 
+- The Advisor's confidence is below the run's confidence threshold
+- It does not match the Advisor's signal (the signal was HOLD, or the side or ticker differs)
 - It is larger than the per-order share limit
 - The daily trade limit has been reached
 - It sells more shares than are held (no short selling)
 - A buy would use more than the allowed share of available cash
 - A buy would grow one position past the allowed share of the portfolio
+
+The confidence check uses the Advisor's own output, not the Trader's reading of it. When the Advisor's task finishes, its `TRADE SIGNAL` line is parsed and stored for the run, and every order the Trader places is compared against it. The Advisor rates its confidence from 0.00 to 1.00 using a rubric in `tasks.yaml` and is never shown the threshold. The threshold defaults to 0.70 and can be set per run.
 
 Blocked orders are returned to the Trader with the reason, recorded with status `blocked`, and logged as monitor events. After each run, the monitor checks every unsettled order with Alpaca, records whether it filled (and at what price), was canceled, or was rejected, and flags any position that has lost more than the alert threshold or grown too large.
 
@@ -151,8 +155,9 @@ The system will prompt you for:
 - Your investment question (e.g. "Is NVDA a good buy right now?")
 - The stock ticker (e.g. NVDA)
 - Your experience level (beginner / intermediate / advanced)
+- A confidence threshold from 0 to 1 (press Enter for 0.7)
 
-The Advisor will then fetch live data, analyze it, and pass a trade signal to the Trader. If the signal meets the confidence threshold, the Trader will execute a paper order on Alpaca. A full trade report is saved to `trade_report.md` after each run.
+The Advisor will then fetch live data, analyze it, and pass a trade signal to the Trader. If the signal's confidence meets the threshold, the Trader will execute a paper order on Alpaca; the Risk Monitor blocks the order otherwise. A full trade report is saved to `trade_report.md` after each run.
 
 ### Web Dashboard
 
@@ -165,7 +170,7 @@ uv run streamlit run src/first_ai_agents/app.py
 Run it from the project root so Streamlit picks up the theme in `.streamlit/config.toml`. The dashboard is laid out as an agent control room:
 
 - **Account bar**: portfolio value (with the change since the previous snapshot), cash, buying power, and position count. **Sync** loads the latest figures from Alpaca.
-- **Question form**: a question, a ticker, and an experience level.
+- **Question form**: a question, a ticker, an experience level, and a confidence threshold slider.
 - **Agent pipeline**: one card each for the Advisor, Trader, and Risk Monitor. During a run the cards light up as each agent works; afterwards they show the Advisor's sentiment, signal, and 5-day price trend, the Trader's decision and order status, and the Monitor's checks and warnings.
 - **Decision banner**: BUY, SELL, HOLD, BLOCKED, or FAILED, with the order details and the reason. It reflects what was actually recorded (orders, blocks, and failures), not the Trader's own description.
 - **Advisor analysis and Trader report**: the full text from each agent, plus the agent logs for runs made in the current session.

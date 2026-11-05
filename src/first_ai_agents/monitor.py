@@ -2,7 +2,9 @@
 
 Unlike the Advisor and Trader, the monitor uses no LLM. It applies the fixed
 rules in config/risk_limits.yaml to block unsafe orders before they reach
-Alpaca, and after each run it checks on submitted orders and open positions.
+Alpaca, blocks orders that do not match the Advisor's signal or fall below
+the run's confidence threshold, and after each run checks on submitted
+orders and open positions.
 """
 from pathlib import Path
 
@@ -32,6 +34,53 @@ def load_limits() -> dict:
     return limits
 
 
+# --- the run in progress ---
+# The crew records the Advisor's parsed signal here when the Advisor finishes,
+# so orders are checked against what the Advisor actually said rather than
+# what the Trader reports. This assumes one crew run at a time.
+
+DEFAULT_CONFIDENCE_THRESHOLD = 0.7
+_active_run: dict | None = None
+
+
+def start_run(confidence_threshold: float):
+    global _active_run
+    if not 0 <= confidence_threshold <= 1:
+        raise ValueError(f"confidence_threshold must be between 0 and 1, got {confidence_threshold}.")
+    _active_run = {"threshold": confidence_threshold, "signal": None}
+
+
+def record_signal(signal: dict | None):
+    if _active_run is not None:
+        _active_run["signal"] = signal
+
+
+def end_run():
+    global _active_run
+    _active_run = None
+
+
+def _signal_violation(ticker: str, side: str) -> str | None:
+    """Checks an order against the Advisor's signal and the run's confidence threshold."""
+    if _active_run is None:
+        return None  # not inside a crew run, e.g. a manual tool call
+    signal, threshold = _active_run["signal"], _active_run["threshold"]
+    if not signal:
+        return "No TRADE SIGNAL was found in the Advisor's analysis."
+    if signal["action"] == "HOLD":
+        return "The Advisor's signal was HOLD, so no order is allowed."
+    if signal["action"].lower() != side:
+        return f"This is a {side} order, but the Advisor's signal was {signal['action']}."
+    if signal["ticker"] and signal["ticker"] != ticker:
+        return f"This order is for {ticker}, but the Advisor's signal was for {signal['ticker']}."
+    if signal["confidence"] is None:
+        return "The Advisor's signal has no numeric confidence, so the threshold cannot be checked."
+    if signal["confidence"] < threshold:
+        return (f"The Advisor's confidence ({signal['confidence']:.2f}) is below "
+                f"the confidence threshold ({threshold:.2f}).")
+    return None
+
+
 # --- before an order ---
 
 def check_order(api, ticker: str, qty: int, side: str) -> tuple[bool, str]:
@@ -51,6 +100,10 @@ def _order_violation(api, ticker: str, qty: int, side: str, limits: dict) -> str
         return f"Quantity must be positive, got {qty}."
     if qty > limits["max_qty_per_order"]:
         return f"{qty} shares exceeds the per-order limit of {limits['max_qty_per_order']}."
+
+    signal_problem = _signal_violation(ticker, side)
+    if signal_problem:
+        return signal_problem
 
     trades_today = count_trades_today()
     if trades_today >= limits["max_trades_per_day"]:

@@ -26,8 +26,8 @@ class FakeCrew:
         if FakeCrew.error:
             raise FakeCrew.error
         db.log_crew_run(question=inputs["question"], ticker=inputs["ticker"],
-                        experience=inputs["experience_level"], threshold=0.7,
-                        analysis="SENTIMENT: BEARISH\nTRADE SIGNAL: SELL AMD | Qty: 5 | Confidence: LOW",
+                        experience=inputs["experience_level"], threshold=inputs["confidence_threshold"],
+                        analysis="SENTIMENT: BEARISH\nTRADE SIGNAL: SELL AMD | Qty: 5 | Confidence: 0.40",
                         trade_signal="Held: confidence too low.", raw_output="", started_at=started)
 
 
@@ -66,7 +66,18 @@ def test_live_run_is_saved_selected_and_shown(app):
     assert run["ticker"] == "AMD"
     assert at.session_state["selected_run_id"] == run["id"]
     page = " ".join(str(e.proto) for e in at.get("html"))
-    assert "HOLD" in page and "SELL with LOW confidence" in page
+    assert "HOLD" in page and "confidence 0.40, below the 0.70 threshold" in page
+    assert run["threshold"] == 0.7
+
+
+def test_threshold_slider_reaches_the_run(app):
+    at, _ = app
+    at.slider[0].set_value(0.35)
+    at = submit(at, "Should I sell AMD?", "AMD")
+
+    assert db.get_crew_runs()[0]["threshold"] == 0.35
+    page = " ".join(str(e.proto) for e in at.get("html"))
+    assert "meets the 0.35 threshold" in page
 
 
 def test_failed_run_shows_the_error(app, monkeypatch):

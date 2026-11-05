@@ -14,7 +14,8 @@ from first_ai_agents.database import (
     get_cached_stock, get_crew_run, get_crew_runs, get_monitor_events,
     get_monitor_events_between, get_portfolio_snapshots, get_trades, get_trades_between, utc_now,
 )
-from first_ai_agents.monitor import load_limits
+from first_ai_agents.monitor import DEFAULT_CONFIDENCE_THRESHOLD, load_limits
+from first_ai_agents.signals import parse_signal
 
 load_dotenv()
 
@@ -81,12 +82,18 @@ with sync_col:
 
 # ── Question form ──────────────────────────────────────────────────────────────
 with st.form("ask", border=False):
-    q_col, t_col, e_col, b_col = st.columns([3, 1, 3.7, 1.5], vertical_alignment="bottom")
+    q_col, t_col = st.columns([4, 1])
     question = q_col.text_input("Investment question", placeholder="Is NVDA a good buy right now?")
     ticker = t_col.text_input("Ticker", placeholder="NVDA").upper().strip()
+    e_col, c_col, b_col = st.columns([2.6, 2.4, 1.2], vertical_alignment="bottom")
     experience = e_col.segmented_control(
         "Experience level", ["beginner", "intermediate", "advanced"],
         default="beginner", format_func=str.title,
+    )
+    threshold = c_col.slider(
+        "Confidence threshold", min_value=0.0, max_value=1.0, value=DEFAULT_CONFIDENCE_THRESHOLD,
+        step=0.05, format="%.2f",
+        help="The Advisor rates each signal from 0 to 1. Orders below this are blocked by the Risk Monitor.",
     )
     submitted = b_col.form_submit_button(
         "Run agents", icon=":material/play_arrow:", type="primary", width="stretch",
@@ -105,7 +112,7 @@ if submitted:
                 "question": question,
                 "ticker": ticker,
                 "experience_level": experience or "beginner",
-                "confidence_threshold": 0.7,
+                "confidence_threshold": threshold,
             },
             pipeline_slot,
         )
@@ -276,11 +283,12 @@ with tab_history:
         )
         rows = []
         for r in runs:
-            signal = ui.parse_signal(r["analysis"]) or ui.parse_signal(r["trade_signal"]) or {}
+            signal = parse_signal(r["analysis"]) or parse_signal(r["trade_signal"])
             rows.append({
                 "Time": ui.fmt_time(r["run_at"]), "Ticker": r["ticker"], "Question": r["question"],
                 "Experience": (r["experience"] or "").title(),
-                "Signal": signal.get("action", "—"), "Confidence": signal.get("confidence") or "—",
+                "Signal": signal["action"] if signal else "—", "Confidence": ui.fmt_confidence(signal),
+                "Threshold": f"{r['threshold']:.2f}" if r["threshold"] is not None else "—",
             })
         st.dataframe(
             pd.DataFrame(rows).style.map(ui.label_style, subset=["Signal"]),

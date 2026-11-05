@@ -17,7 +17,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 4, 2026 | Risk Monitor added to Deep Learning Connections | `80595b3` |
 | Nov 4, 2026 | Development log added | `8bb96c9` |
 | Nov 4, 2026 | Test suite added; leftover files removed | `db9559a` |
-| Nov 4, 2026 | Deprecated `datetime.utcnow()` replaced | (this change) |
+| Nov 4, 2026 | Deprecated `datetime.utcnow()` replaced | `24acc9b` |
+| Nov 4, 2026 | Confidence threshold enforced | (this change) |
 
 ---
 
@@ -145,6 +146,21 @@ Added a "Rule-Based Guardrails Around a Probabilistic Model" subsection to the R
 
 ---
 
+## 11. Confidence threshold enforced (November 4, 2026)
+
+**Why:** Every run passed `confidence_threshold: 0.7`, but nothing used it. The Advisor rated confidence as HIGH, MEDIUM, or LOW, and the Trader's prompt said to trade on HIGH or MEDIUM, so there was no number to compare with the threshold. Even a correct prompt would only be a request to the model.
+
+**What changed:**
+- `config/tasks.yaml`: the Advisor ends with `Confidence: 0.00` to `1.00`, scored with a rubric (0.80 or higher when price, valuation, and news agree; 0.50 to 0.79 when mixed; below 0.50 when weak). It is not told the threshold, so it cannot aim just above it. The Trader is told to trade only at or above the threshold.
+- `signals.py` (new): reads the Advisor's `TRADE SIGNAL` and `SENTIMENT` lines, including numeric confidence (`0.78` or `78%`) and the older HIGH/MEDIUM/LOW labels. Moved out of `ui.py` because the Risk Monitor now uses it too.
+- `crew.py`: starts each run with its threshold (0.7 if none is given; values outside 0 to 1 stop the run), records the Advisor's parsed signal from its task callback as soon as the Advisor finishes, and clears it when the run ends.
+- `monitor.py`: `check_order` now also blocks an order when there is no signal, the signal was HOLD, the side or ticker does not match the signal, the confidence is missing, or the confidence is below the threshold. These checks apply only during a crew run.
+- Dashboard: a threshold slider in the question form; the Advisor card shows the confidence (green if it meets the threshold, amber if not) and the threshold; the decision banner explains a HOLD by comparing the two; Run History shows both.
+- `main.py`: the terminal version asks for a threshold (Enter for 0.7).
+- Tests: 30 new tests for parsing, the new monitor checks, the crew's run tracking, and the slider (78 in total).
+
+---
+
 ## How the changes were tested
 
 The checks below are now part of the test suite in `tests/` (see step 9).
@@ -162,7 +178,8 @@ The checks below are now part of the test suite in `tests/` (see step 9).
 - **ChromaDB / RAG** from the original blueprint is still not built.
 - **Older runs show less detail.** Runs saved before November 4, 2026 have no start time, so their trades and monitor events cannot be matched to them, and their Trader and Monitor cards say "not recorded".
 - **Agent logs are not saved.** The dashboard keeps them only for runs made since the page was opened.
-- **The confidence threshold is not applied numerically.** Every run passes `confidence_threshold: 0.7`, but the Trader decides from HIGH/MEDIUM/LOW labels, and the order size is fixed at 5 shares in `tasks.yaml`.
+- **Order size is fixed** at 5 shares in `tasks.yaml`; it does not scale with confidence.
+- **One run at a time.** The Advisor's signal for the run in progress is held in memory in `monitor.py`, so two runs started at the same moment (for example from two browser tabs) would share it.
 - **Position warnings repeat.** A position that stays over a limit is flagged again after every run.
 - **The daily trade limit uses UTC days,** not the market's trading day.
 - **The OneDrive copy** at `Documents\CrewAI 101\first_ai_agents` is a separate local folder that is not linked to this repository and has diverged from it.

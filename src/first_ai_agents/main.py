@@ -21,12 +21,13 @@ def run():
     question = input("What's your investment question? ")
     ticker = input("Which stock ticker? (e.g. AAPL, TSLA, NVDA): ").upper()
     experience_level = input("Experience level? (beginner / intermediate / advanced): ").lower()
+    threshold = input("Confidence threshold, 0 to 1 (press Enter for 0.7): ").strip()
 
     inputs = {
         'question': question,
         'ticker': ticker,
         'experience_level': experience_level,
-        'confidence_threshold': 0.7
+        'confidence_threshold': float(threshold) if threshold else 0.7
     }
     
     try:

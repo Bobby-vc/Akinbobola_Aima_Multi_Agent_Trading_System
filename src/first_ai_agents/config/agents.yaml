@@ -21,7 +21,7 @@ trader_agent:
   goal: >
     Evaluate trade signals from the Advisor Agent using LSTM-based time-series
     analysis of OHLCV stock data, and only execute trades when confidence
-    exceeds the defined threshold.
+    meets or exceeds the defined threshold.
   backstory: >
     You are a disciplined quantitative trader with deep expertise in sequential
     price pattern recognition. You rely on a trained LSTM model that processes

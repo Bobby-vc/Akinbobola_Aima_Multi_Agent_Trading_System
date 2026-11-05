@@ -108,3 +108,60 @@ def test_run_checks(temp_db):
     assert any("Could not look up order a3" in f for f in findings)
     assert len(db.get_portfolio_snapshots()) == 1
     assert db.get_monitor_events()[0]["category"] == "check"
+
+
+# --- the Advisor's signal and the confidence threshold ---
+
+def signal(action="BUY", ticker="AAPL", confidence=0.8):
+    return {"action": action, "ticker": ticker, "qty": 5, "confidence": confidence, "label": None}
+
+
+@pytest.mark.parametrize("recorded, side, reason", [
+    (None, "buy", "No TRADE SIGNAL"),
+    (signal(action="HOLD"), "buy", "signal was HOLD"),
+    (signal(action="SELL"), "buy", "this is a buy order, but the Advisor's signal was SELL"),
+    (signal(ticker="MSFT"), "buy", "for AAPL, but the Advisor's signal was for MSFT"),
+    (signal(confidence=None), "buy", "no numeric confidence"),
+    (signal(confidence=0.69), "buy", "(0.69) is below the confidence threshold (0.70)"),
+])
+def test_orders_must_match_the_advisor_signal(temp_db, recorded, side, reason):
+    monitor.start_run(0.7)
+    monitor.record_signal(recorded)
+    allowed, message = monitor.check_order(FakeAlpaca(), "AAPL", 5, side)
+    assert not allowed
+    assert reason.lower() in message.lower()
+
+
+@pytest.mark.parametrize("recorded", [
+    signal(confidence=0.7),      # exactly at the threshold is allowed
+    signal(ticker=None),         # a signal without a ticker is not a mismatch
+])
+def test_orders_meeting_the_threshold_are_allowed(temp_db, recorded):
+    monitor.start_run(0.7)
+    monitor.record_signal(recorded)
+    allowed, _ = monitor.check_order(FakeAlpaca(), "aapl", 5, "buy")
+    assert allowed
+
+
+def test_signal_checks_apply_only_during_a_run(temp_db):
+    monitor.start_run(0.7)
+    monitor.record_signal(signal(confidence=0.1))
+    monitor.end_run()
+    allowed, _ = monitor.check_order(FakeAlpaca(), "AAPL", 5, "buy")
+    assert allowed
+
+
+@pytest.mark.parametrize("threshold", [-0.1, 1.5])
+def test_threshold_must_be_between_0_and_1(threshold):
+    with pytest.raises(ValueError):
+        monitor.start_run(threshold)
+
+
+def test_tool_blocks_a_low_confidence_order(temp_db, monkeypatch):
+    api = FakeAlpaca()
+    monkeypatch.setattr(tools, "get_alpaca_api", lambda: api)
+    monitor.start_run(0.8)
+    monitor.record_signal(signal(confidence=0.75))
+    result = tools.execute_paper_trade.run(ticker="AAPL", qty=5, side="buy")
+    assert "BLOCKED" in result and "below the confidence threshold" in result
+    assert api.submitted == []

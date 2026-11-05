@@ -8,8 +8,9 @@ before it is placed in HTML.
 import base64
 import html
 import json
-import re
 from datetime import datetime
+
+from first_ai_agents.signals import parse_sentiment, parse_signal
 
 ADVISOR_COLOR = "#58A6FF"
 TRADER_COLOR = "#3DD6C6"
@@ -106,31 +107,13 @@ def fmt_money(value) -> str:
     return "—" if value is None else f"${float(value):,.2f}"
 
 
-# --- reading agent output ---
-
-_SIGNAL_RE = re.compile(r"TRADE SIGNAL:\s*(BUY|HOLD|SELL)\b(.*)", re.IGNORECASE)
-_SENTIMENT_RE = re.compile(r"SENTIMENT[^\n:]*:\s*(BULLISH|BEARISH|NEUTRAL)", re.IGNORECASE)
-
-
-def parse_signal(text: str | None) -> dict | None:
-    """Reads the Advisor's last 'TRADE SIGNAL: BUY X | Qty: 5 | Confidence: HIGH' line."""
-    clean = re.sub(r"[*\[\]]", "", text or "")
-    matches = list(_SIGNAL_RE.finditer(clean))
-    if not matches:
-        return None
-    match = matches[-1]
-    qty = re.search(r"Qty:\s*(\d+)", match.group(2), re.IGNORECASE)
-    confidence = re.search(r"Confidence:\s*(HIGH|MEDIUM|LOW)", match.group(2), re.IGNORECASE)
-    return {
-        "action": match.group(1).upper(),
-        "qty": int(qty.group(1)) if qty else None,
-        "confidence": confidence.group(1).upper() if confidence else None,
-    }
-
-
-def parse_sentiment(text: str | None) -> str | None:
-    matches = _SENTIMENT_RE.findall(re.sub(r"[*\[\]]", "", text or ""))
-    return matches[-1].upper() if matches else None
+def fmt_confidence(signal: dict | None) -> str:
+    """0.78 for numeric confidence; HIGH/MEDIUM/LOW for runs saved before it was numeric."""
+    if not signal:
+        return "—"
+    if signal["confidence"] is not None:
+        return f"{signal['confidence']:.2f}"
+    return signal["label"] or "—"
 
 
 # --- the run view shown on the cards ---
@@ -171,6 +154,7 @@ def build_run_view(run, trades, events, stock: dict | None) -> dict:
         "run_at": run["run_at"],
         "recorded": recorded,
         "signal": signal,
+        "threshold": run["threshold"],
         "sentiment": parse_sentiment(run["analysis"]),
         "price": (stock or {}).get("currentPrice"),
         "closes": (stock or {}).get("closes") or [],
@@ -300,6 +284,14 @@ _SENTIMENT_COLORS = {"BULLISH": BUY_COLOR, "BEARISH": SELL_COLOR, "NEUTRAL": HOL
 _ACTION_COLORS = {"BUY": BUY_COLOR, "SELL": SELL_COLOR, "HOLD": HOLD_COLOR}
 
 
+def _confidence_html(signal: dict, threshold: float | None) -> str:
+    """Green when the confidence meets the threshold, amber when it falls short."""
+    confidence = signal.get("confidence")
+    if confidence is None or threshold is None:
+        return esc(fmt_confidence(signal or None))
+    return _colored(fmt_confidence(signal), BUY_COLOR if confidence >= threshold else HOLD_COLOR)
+
+
 def run_pipeline_html(view: dict) -> str:
     signal = view["signal"] or {}
     action = signal.get("action")
@@ -308,7 +300,8 @@ def run_pipeline_html(view: dict) -> str:
         ("Sentiment", _colored(view["sentiment"].title(), _SENTIMENT_COLORS[view["sentiment"]])
          if view["sentiment"] else "—"),
         ("Signal", _colored(f"{action} {view['ticker']}", _ACTION_COLORS[action]) if action else "—"),
-        ("Confidence", esc(signal.get("confidence") or "—")),
+        ("Confidence", _confidence_html(signal, view["threshold"])),
+        ("Threshold", f"{view['threshold']:.2f}" if view["threshold"] is not None else "—"),
         ("Price", f"{sparkline_svg(view['closes'])}{fmt_money(view['price'])}"),
     ]
     advisor = card_html(*_ADVISOR, ADVISOR_COLOR, "done", advisor_rows)
@@ -348,6 +341,20 @@ def run_pipeline_html(view: dict) -> str:
     return pipeline_html([advisor, trader, monitor])
 
 
+def _hold_reason(signal: dict, threshold: float | None) -> str:
+    action, confidence = esc(signal["action"]), signal["confidence"]
+    if signal["action"] == "HOLD":
+        return f"The Advisor's signal was HOLD (confidence {esc(fmt_confidence(signal))}), so no order was placed."
+    if confidence is None or threshold is None:
+        return (f"The Advisor signaled {action} with confidence {esc(fmt_confidence(signal))}, "
+                f"and the Trader did not place an order.")
+    if confidence < threshold:
+        return (f"The Advisor signaled {action} with confidence {confidence:.2f}, below the "
+                f"{threshold:.2f} threshold, so no order was placed.")
+    return (f"The Advisor signaled {action} with confidence {confidence:.2f}, which meets the "
+            f"{threshold:.2f} threshold, but the Trader did not place an order. See the Trader report.")
+
+
 _DECISION_STYLE = {
     "buy": ("BUY", BUY_COLOR), "sell": ("SELL", SELL_COLOR), "hold": ("HOLD", HOLD_COLOR),
     "blocked": ("BLOCKED", MONITOR_COLOR), "failed": ("FAILED", SELL_COLOR), "none": ("NO SIGNAL", MUTED_COLOR),
@@ -365,7 +372,10 @@ def decision_html(view: dict) -> str:
     else:
         what = f"{ticker} @ {fmt_money(view['price'])} <small>last</small>"
 
-    meta = [f"Confidence {esc(signal['confidence'])}"] if signal.get("confidence") else []
+    meta = []
+    if signal:
+        threshold = f" · threshold {view['threshold']:.2f}" if view["threshold"] is not None else ""
+        meta.append(f"Confidence {esc(fmt_confidence(signal))}{threshold}")
     if trade and view["kind"] in ("buy", "sell"):
         meta.append(f"Order {esc(trade['status'])}")
 
@@ -374,8 +384,7 @@ def decision_html(view: dict) -> str:
     elif view["kind"] == "failed":
         why = "The order could not be submitted to Alpaca. See the Trader report for the error."
     elif view["kind"] == "hold" and signal:
-        why = (f"The Advisor signaled {esc(signal['action'])} with {esc(signal.get('confidence') or 'unknown')} "
-               f"confidence, so the Trader did not place an order.")
+        why = _hold_reason(signal, view["threshold"])
     elif view["kind"] == "none":
         why = "No trade signal was found in the Advisor's analysis."
     elif not view["recorded"]:

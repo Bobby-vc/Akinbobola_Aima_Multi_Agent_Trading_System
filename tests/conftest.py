@@ -14,6 +14,14 @@ import pytest
 import first_ai_agents.database as db
 
 
+@pytest.fixture(autouse=True)
+def no_active_run():
+    """Clears the Risk Monitor's record of the run in progress after every test."""
+    yield
+    import first_ai_agents.monitor as monitor
+    monitor.end_run()
+
+
 @pytest.fixture
 def temp_db(tmp_path, monkeypatch):
     """A fresh, empty database for one test."""
