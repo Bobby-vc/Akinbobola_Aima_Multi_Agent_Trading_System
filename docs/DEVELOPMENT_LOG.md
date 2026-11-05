@@ -15,6 +15,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 4, 2026 | Rule-based Risk Monitor added as a third agent | `1642959` |
 | Nov 4, 2026 | Dashboard redesigned as an agent control room | `50b9740` |
 | Nov 4, 2026 | Risk Monitor added to Deep Learning Connections | `80595b3` |
+| Nov 4, 2026 | Development log added | `8bb96c9` |
+| Nov 4, 2026 | Test suite added; leftover files removed | (this change) |
 
 ---
 
@@ -38,7 +40,7 @@ It ran from the terminal and wrote its result to `trade_report.md`. The reposito
 - `src/first_ai_agents/app.py`: a Streamlit dashboard with a run form, a live Alpaca portfolio sidebar, the trade report, and Trade History and Portfolio Snapshots tabs.
 - `streamlit` added to `pyproject.toml`; a pinned `requirements.txt` was proposed.
 
-**Note:** The root-level `app.py` is the earlier version of this dashboard. It is no longer used; the dashboard is `src/first_ai_agents/app.py`.
+**Note:** An earlier version of this dashboard also existed as a root-level `app.py`. It was removed in step 9.
 
 ---
 
@@ -123,9 +125,20 @@ Added a "Rule-Based Guardrails Around a Probabilistic Model" subsection to the R
 
 ---
 
+## 9. Test suite and cleanup (November 4, 2026)
+
+**Why:** The checks run during development lived only in temporary scripts, so later changes could not be checked the same way.
+
+**What changed:**
+- `tests/`: a pytest suite (47 tests) covering the database, the Risk Monitor, the crew's hooks, the dashboard components, and the dashboard itself through Streamlit's test runner. `tests/conftest.py` points the app at a temporary database before anything is imported and replaces Alpaca with a fake account, so the suite never places orders or touches `trading.db`.
+- `pyproject.toml`: pytest added as a development dependency. Run the suite with `uv run pytest`.
+- Removed the root-level `app.py` (the old dashboard) and `src/first_ai_agents/.env.example`, an exact copy of the `.env.example` in the project root.
+
+---
+
 ## How the changes were tested
 
-The automated checks below were run during development. The scripts are not stored in the repository.
+The checks below are now part of the test suite in `tests/` (see step 9).
 
 - **Database logging:** a run, a trade, a portfolio snapshot, and the price cache were saved and read back from a temporary database.
 - **Risk Monitor:** 16 checks against a fake Alpaca account. These covered every blocking rule, an allowed order, a blocked order never reaching `submit_order`, status and fill-price updates, a failed order lookup, position alerts, the crew's finish hook, and upgrading a database created with the old schema.
@@ -138,11 +151,10 @@ The automated checks below were run during development. The scripts are not stor
 ## Known limitations and possible next steps
 
 - **ChromaDB / RAG** from the original blueprint is still not built.
-- **The automated tests are not in the repository.** Adding them under `tests/` would let future changes be checked the same way.
 - **Older runs show less detail.** Runs saved before November 4, 2026 have no start time, so their trades and monitor events cannot be matched to them, and their Trader and Monitor cards say "not recorded".
 - **Agent logs are not saved.** The dashboard keeps them only for runs made since the page was opened.
 - **The confidence threshold is not applied numerically.** Every run passes `confidence_threshold: 0.7`, but the Trader decides from HIGH/MEDIUM/LOW labels, and the order size is fixed at 5 shares in `tasks.yaml`.
 - **Position warnings repeat.** A position that stays over a limit is flagged again after every run.
 - **The daily trade limit uses UTC days,** not the market's trading day.
-- **Leftover files:** the root-level `app.py` (the old dashboard), and the copy of `.env.example` inside `src/first_ai_agents/`, which duplicates the one in the project root.
+- **`datetime.utcnow()` is deprecated** in recent Python versions and is used throughout `database.py`, `crew.py`, and the tests. It still works, but running the tests prints deprecation warnings; switching to `datetime.now(timezone.utc)` would remove them.
 - **The OneDrive copy** at `Documents\CrewAI 101\first_ai_agents` is a separate local folder that is not linked to this repository and has diverged from it.

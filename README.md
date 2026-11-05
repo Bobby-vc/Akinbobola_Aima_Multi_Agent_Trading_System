@@ -175,6 +175,14 @@ Run it from the project root so Streamlit picks up the theme in `.streamlit/conf
 
 To preview the dashboard against a different database (for example a demo copy), set `AIMA_DB_PATH` to its path before starting Streamlit.
 
+### Running the Tests
+
+The test suite runs against a temporary database and stand-ins for OpenAI and Alpaca, so it never places orders or touches `trading.db`:
+
+```bash
+uv run pytest
+```
+
 ---
 
 ## Database
@@ -212,6 +220,8 @@ first_ai_agents/
 │   ├── monitor.py             # Rule-based Risk Monitor
 │   └── main.py                # Entry point with user input prompts
 ├── .streamlit/config.toml     # Dashboard theme (colors and fonts)
+├── docs/DEVELOPMENT_LOG.md    # History of changes since the submission
+├── tests/                     # pytest suite (no real API calls)
 ├── trade_report.md            # Auto-generated after each run
 ├── trading.db                 # SQLite database (created on first use, not committed)
 ├── pyproject.toml
