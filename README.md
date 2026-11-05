@@ -1,13 +1,11 @@
-# AI Investment Multi-Agent System
+# AI Investment Multi-Agent System (AIMA)
 
-**Akinbobola Akinpelu**
+**Akinbobola Akinpelu** & **Aima Ayaz**
 
-ITAI 2376 — Professor McManus
 
 ---
 Demo: https://drive.google.com/file/d/1VLG0AVz0deRrmIlhUtg4bDtiqcClM9aq/view?usp=drive_link
 
-Changes since the original submission are recorded in the [Development Log](docs/DEVELOPMENT_LOG.md).
 
 ## Overview
 
