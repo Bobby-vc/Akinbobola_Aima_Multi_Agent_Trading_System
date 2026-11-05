@@ -2,14 +2,24 @@
 import time
 from pathlib import Path
 
+import pandas as pd
 import pytest
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 import first_ai_agents.crew as crew_module
 import first_ai_agents.database as db
-from first_ai_agents import ui
+from first_ai_agents import performance, ui
 
 APP = str(Path(__file__).parents[1] / "src" / "first_ai_agents" / "app.py")
+
+# Prices for the Performance tab, so the tests never call Yahoo Finance
+SESSIONS = list(pd.bdate_range("2026-11-02", "2026-12-18").date)
+FAKE_CLOSES = pd.DataFrame({
+    "UP": [100 * 1.01 ** i for i in range(len(SESSIONS))],
+    "DOWN": [100 * 0.99 ** i for i in range(len(SESSIONS))],
+    "SPY": [500.0] * len(SESSIONS),
+}, index=SESSIONS)
 
 
 class FakeCrew:
@@ -38,6 +48,8 @@ def app(temp_db, monkeypatch):
     monkeypatch.setattr(ui, "live_pipeline_html", lambda n, ticker: stages.append(n) or real_live(n, ticker))
     monkeypatch.setattr(crew_module, "FirstAiAgents", type("FakeAgents", (), {"crew": lambda self: FakeCrew()}))
     monkeypatch.setattr(FakeCrew, "error", None)
+    monkeypatch.setattr(performance, "load_daily_closes", lambda tickers, start: FAKE_CLOSES)
+    st.cache_data.clear()
     at = AppTest.from_file(APP, default_timeout=60).run()
     assert not at.exception
     return at, stages
@@ -94,3 +106,41 @@ def test_empty_form_shows_a_warning(app):
     next(b for b in at.button if b.label == "Run agents").click()
     at.run()
     assert any("Enter both" in w.value for w in at.warning)
+
+
+def test_performance_tab_scores_past_signals(temp_db, monkeypatch):
+    monkeypatch.setattr(performance, "load_daily_closes", lambda tickers, start: FAKE_CLOSES)
+    st.cache_data.clear()
+    with db.get_conn() as conn:
+        for ticker, signal in (("UP", "BUY UP | Confidence: 0.85"), ("DOWN", "SELL DOWN | Confidence: 0.80"),
+                               ("DOWN", "BUY DOWN | Confidence: 0.55")):
+            conn.execute(
+                "INSERT INTO crew_runs (run_at, started_at, question, ticker, experience, threshold, analysis, "
+                "trade_signal, raw_output) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("2026-11-02T15:00:00", "2026-11-02T14:59:00", "q", ticker, "beginner", 0.7,
+                 f"TRADE SIGNAL: {signal}", "", ""),
+            )
+
+    at = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert not at.exception
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["Signals scored"] == "3"
+    assert metrics["Hit rate"] == "67%"
+    # The 0.85 BUY and 0.80 SELL cleared the 0.7 threshold and hit; the 0.55 BUY was filtered and missed
+    assert metrics["Cleared threshold"] == "100%" and metrics["Filtered out"] == "0%"
+    assert any("mostly noise" in w.value for w in at.warning)
+
+
+def test_performance_tab_survives_a_price_outage(temp_db, monkeypatch):
+    def yahoo_down(tickers, start):
+        raise ConnectionError("Yahoo is down")
+    monkeypatch.setattr(performance, "load_daily_closes", yahoo_down)
+    st.cache_data.clear()
+    db.log_crew_run(question="q", ticker="UP", experience="beginner", threshold=0.7,
+                    analysis="TRADE SIGNAL: BUY UP | Confidence: 0.9", trade_signal="", raw_output="")
+
+    at = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert not at.exception
+    assert any("Yahoo is down" in e.value for e in at.error)

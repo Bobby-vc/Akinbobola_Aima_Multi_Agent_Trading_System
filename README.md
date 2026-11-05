@@ -174,9 +174,21 @@ Run it from the project root so Streamlit picks up the theme in `.streamlit/conf
 - **Agent pipeline**: one card each for the Advisor, Trader, and Risk Monitor. During a run the cards light up as each agent works; afterwards they show the Advisor's sentiment, signal, and 5-day price trend, the Trader's decision and order status, and the Monitor's checks and warnings.
 - **Decision banner**: BUY, SELL, HOLD, BLOCKED, or FAILED, with the order details and the reason. It reflects what was actually recorded (orders, blocks, and failures), not the Trader's own description.
 - **Advisor analysis and Trader report**: the full text from each agent, plus the agent logs for runs made in the current session.
-- **Tabs**: Positions with color-coded P&L, every Trade, a Portfolio value chart, the Risk Monitor's limits and event log, and a Run History that lets you show any past run in the pipeline.
+- **Tabs**: Performance (how past signals turned out; see below), Positions with color-coded P&L, every Trade, a Portfolio value chart, the Risk Monitor's limits and event log, and a Run History that lets you show any past run in the pipeline.
 
 To preview the dashboard against a different database (for example a demo copy), set `AIMA_DB_PATH` to its path before starting Streamlit.
+
+### Signal Performance
+
+The Performance tab scores every past signal against what the market actually did, using daily prices from Yahoo Finance:
+
+- **Entry:** the close of the first trading session after the signal (before 4 p.m. ET: that day's close; after the close or on a weekend: the next session's). No price from before the signal is used.
+- **Holding periods:** 1, 5, and 20 trading days after entry, from split- and dividend-adjusted closes.
+- **Hit:** a BUY whose stock rose, or a SELL whose stock fell. HOLD signals are listed but not scored.
+- **Benchmark:** SPY over the same days. "Vs S&P" is the signal's return minus the market's, in the signal's direction.
+- **Uncertainty:** hit rates come with a 95% Wilson confidence interval, and the tab warns when fewer than 20 signals have been scored.
+
+It also shows a calibration chart (do 0.8-confidence signals hit more often than 0.6 ones?) and compares the hit rate of signals that cleared the confidence threshold with those it filtered out.
 
 ### Running the Tests
 
@@ -221,6 +233,8 @@ first_ai_agents/
 │   ├── crew.py                # Crew assembly and agent/task wiring
 │   ├── database.py            # SQLite schema and read/write helpers
 │   ├── monitor.py             # Rule-based Risk Monitor
+│   ├── performance.py         # Scores past signals against market prices
+│   ├── signals.py             # Reads the Advisor's TRADE SIGNAL and SENTIMENT lines
 │   └── main.py                # Entry point with user input prompts
 ├── .streamlit/config.toml     # Dashboard theme (colors and fonts)
 ├── docs/DEVELOPMENT_LOG.md    # History of changes since the submission

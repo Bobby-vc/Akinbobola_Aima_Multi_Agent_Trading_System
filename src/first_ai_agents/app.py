@@ -1,7 +1,9 @@
 import contextlib
 import json
+import math
 import threading
 import time
+from datetime import date, timedelta
 from io import StringIO
 
 import altair as alt
@@ -9,7 +11,7 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from first_ai_agents import ui
+from first_ai_agents import performance, ui
 from first_ai_agents.database import (
     get_cached_stock, get_crew_run, get_crew_runs, get_monitor_events,
     get_monitor_events_between, get_portfolio_snapshots, get_trades, get_trades_between, utc_now,
@@ -26,6 +28,11 @@ st.set_page_config(
     layout="wide",
 )
 st.html(ui.CSS)
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading price history...")
+def cached_closes(tickers: tuple[str, ...], start: date) -> pd.DataFrame:
+    return performance.load_daily_closes(list(tickers), start)
 
 
 def load_run_view(run) -> dict:
@@ -152,7 +159,8 @@ else:
 
 # ── Detail tabs ────────────────────────────────────────────────────────────────
 st.write("")
-tab_positions, tab_trades, tab_portfolio, tab_monitor, tab_history = st.tabs([
+tab_performance, tab_positions, tab_trades, tab_portfolio, tab_monitor, tab_history = st.tabs([
+    ":material/query_stats: Performance",
     ":material/account_balance_wallet: Positions",
     ":material/swap_horiz: Trades",
     ":material/show_chart: Portfolio",
@@ -161,6 +169,136 @@ tab_positions, tab_trades, tab_portfolio, tab_monitor, tab_history = st.tabs([
 ])
 
 snapshots = get_portfolio_snapshots(limit=200)
+
+with tab_performance:
+    st.caption(
+        "How the Advisor's signals turned out. Each signal is priced at the first market close after it "
+        "was made, then scored after 1, 5, and 20 trading days against the S&P 500 (SPY). A BUY counts as "
+        "a hit if the stock rose; a SELL if it fell. HOLD signals are not scored."
+    )
+    all_runs = get_crew_runs(limit=5000)
+    if not all_runs:
+        st.info("No runs yet. Each signal is scored here once enough trading days have passed.")
+    else:
+        tickers = tuple(sorted({(r["ticker"] or "").upper() for r in all_runs if r["ticker"]}))
+        start = min(date.fromisoformat(r["run_at"][:10]) for r in all_runs) - timedelta(days=7)
+        try:
+            closes = cached_closes(tickers, start)
+        except Exception as e:
+            closes = None
+            st.error(f"Could not load price history from Yahoo Finance: {e}")
+
+        if closes is not None:
+            scores = performance.score_signals(all_runs, closes)
+            horizon = st.segmented_control(
+                "Holding period", performance.HORIZONS, default=5, key="perf_horizon",
+                format_func=lambda h: f"{h} trading day" + ("s" if h > 1 else ""),
+            ) or 5
+            summary = performance.summarize(scores, horizon)
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Signals scored", summary["n"],
+                      help=f"{summary['pending']} more BUY/SELL signals are waiting for {horizon} trading days to pass.")
+            c2.metric("Hit rate", ui.fmt_pct(summary["hit_rate"], signed=False),
+                      help="95% confidence range: "
+                           f"{ui.fmt_pct(summary['hit_rate_low'], signed=False)} to "
+                           f"{ui.fmt_pct(summary['hit_rate_high'], signed=False)}")
+            c3.metric("Avg return per signal", ui.fmt_pct(summary["avg_return"]),
+                      help="In the signal's direction: a SELL earns when the stock falls.")
+            c4.metric("Avg vs S&P 500", ui.fmt_pct(summary["avg_excess"]),
+                      help="The signal's return minus SPY's over the same days.")
+            if not summary["n"]:
+                st.info(f"No signals have reached {horizon} trading days yet. Check back once they have.")
+            elif summary["n"] < 20:
+                st.warning(
+                    f"Only {summary['n']} signal(s) scored at {horizon} days. With fewer than about 20, "
+                    "these numbers are mostly noise: the hit rate's 95% range is "
+                    f"{ui.fmt_pct(summary['hit_rate_low'], signed=False)} to "
+                    f"{ui.fmt_pct(summary['hit_rate_high'], signed=False)}."
+                )
+
+            cal_col, split_col = st.columns([3, 2])
+            with cal_col:
+                st.markdown("**Calibration:** do higher-confidence signals hit more often?")
+                cal = performance.calibration(scores, horizon)
+                if cal.empty:
+                    st.caption("Appears once signals with a numeric confidence have been scored.")
+                else:
+                    # Start the confidence axis just below the lowest bucket so the points spread out
+                    x_low = min(0.4, math.floor(cal["mean_confidence"].min() * 10) / 10)
+                    domain = alt.Scale(domain=[0, 1])
+                    base = alt.Chart(cal).encode(
+                        x=alt.X("mean_confidence:Q", title="Advisor confidence",
+                                scale=alt.Scale(domain=[x_low, 1]), axis=alt.Axis(format=".1f")),
+                    )
+                    ideal = alt.Chart(pd.DataFrame({"x": [x_low, 1], "y": [x_low, 1]})).mark_line(
+                        strokeDash=[4, 4], color=ui.MUTED_COLOR,
+                    ).encode(x="x:Q", y="y:Q")
+                    bars = base.mark_rule(color=ui.ADVISOR_COLOR, opacity=0.5).encode(
+                        y=alt.Y("low:Q", title="Hit rate", scale=domain, axis=alt.Axis(format=".0%")),
+                        y2="high:Q",
+                    )
+                    points = base.mark_circle(color=ui.ADVISOR_COLOR, opacity=0.9).encode(
+                        y="hit_rate:Q",
+                        size=alt.Size("n:Q", legend=None, scale=alt.Scale(range=[60, 400])),
+                        tooltip=[
+                            alt.Tooltip("bucket:N", title="Confidence"),
+                            alt.Tooltip("n:Q", title="Signals"),
+                            alt.Tooltip("hit_rate:Q", title="Hit rate", format=".0%"),
+                            alt.Tooltip("low:Q", title="95% low", format=".0%"),
+                            alt.Tooltip("high:Q", title="95% high", format=".0%"),
+                        ],
+                    )
+                    st.altair_chart(
+                        (ideal + bars + points).properties(height=260).configure_view(strokeWidth=0),
+                        width="stretch",
+                    )
+                    st.caption("Dashed line: a perfectly calibrated Advisor, whose 0.7 signals hit 70% "
+                               "of the time. Bars show each bucket's 95% range.")
+            with split_col:
+                st.markdown("**Is the threshold helping?**")
+                split = performance.threshold_split(scores, horizon)
+                s1, s2 = st.columns(2)
+                s1.metric("Cleared threshold", ui.fmt_pct(split["cleared"]["hit_rate"], signed=False),
+                          help=f"{split['cleared']['n']} scored signals at or above their run's threshold")
+                s2.metric("Filtered out", ui.fmt_pct(split["filtered"]["hit_rate"], signed=False),
+                          help=f"{split['filtered']['n']} scored signals below their run's threshold")
+                st.caption(
+                    "Hit rates of signals the threshold let through versus the ones it held back. If the "
+                    "filtered-out signals hit just as often, the threshold isn't adding value."
+                )
+
+            if not scores.empty:
+                table = scores.copy()
+                direction = table["action"].map({"BUY": 1, "SELL": -1})
+                for h in performance.HORIZONS:
+                    table[f"sig_{h}"] = direction * pd.to_numeric(table[f"ret_{h}"])
+                table = table.sort_values("signal_at", ascending=False)
+                table["signal_at"] = table["signal_at"].map(ui.fmt_time)
+                table["confidence"] = table["confidence"].map(lambda c: "—" if pd.isna(c) else f"{c:.2f}")
+                table["entry_date"] = table["entry_date"].map(lambda d: d.isoformat() if d else "—")
+                table = table[[
+                    "signal_at", "ticker", "action", "confidence", "entry_date", "entry_price",
+                    "sig_1", "sig_5", "sig_20", f"excess_{horizon}", "status",
+                ]].rename(columns={
+                    "signal_at": "Signal", "ticker": "Ticker", "action": "Action", "confidence": "Confidence",
+                    "entry_date": "Entry", "entry_price": "Entry close", "sig_1": "1 day", "sig_5": "5 days",
+                    "sig_20": "20 days", f"excess_{horizon}": f"vs S&P ({horizon}d)", "status": "Status",
+                })
+                returns = ["1 day", "5 days", "20 days", f"vs S&P ({horizon}d)"]
+                # Streamlit draws empty cells as "None" whatever their format, so values are
+                # turned into text first and the colors are worked out from the numbers
+                numbers = table[returns].apply(pd.to_numeric)
+                colors = numbers.map(ui.pnl_style)
+                table[returns] = numbers.map(ui.fmt_pct)
+                table["Entry close"] = table["Entry close"].map(ui.fmt_money)
+                st.dataframe(
+                    table.style.apply(lambda _: colors, axis=None, subset=returns)
+                         .map(ui.label_style, subset=["Action"]),
+                    hide_index=True, width="stretch",
+                )
+                st.caption("Returns are in the signal's direction, from adjusted closes. "
+                           "A dash means that many trading days haven't passed yet.")
 
 with tab_positions:
     positions = json.loads(snapshots[0]["positions_json"]) if snapshots else []
@@ -200,9 +338,11 @@ with tab_trades:
             "traded_at": "Time", "ticker": "Ticker", "side": "Side", "qty": "Shares",
             "status": "Status", "filled_avg_price": "Fill Price", "order_id": "Order ID",
         })
+        # Text, not numbers: Streamlit shows empty cells as "None" whatever their format
+        df["Fill Price"] = df["Fill Price"].map(ui.fmt_money)
+        df["Order ID"] = df["Order ID"].fillna("—")
         st.dataframe(
-            df.style.format({"Fill Price": "${:,.2f}"}, na_rep="—")
-              .map(ui.label_style, subset=["Side", "Status"]),
+            df.style.map(ui.label_style, subset=["Side", "Status"]),
             hide_index=True, width="stretch",
         )
 
@@ -265,8 +405,9 @@ with tab_monitor:
             "created_at": "Time", "level": "Level", "category": "Type",
             "ticker": "Ticker", "message": "Message",
         })
+        df["Ticker"] = df["Ticker"].fillna("—")
         st.dataframe(
-            df.style.format(na_rep="—").map(ui.label_style, subset=["Level"]),
+            df.style.map(ui.label_style, subset=["Level"]),
             hide_index=True, width="stretch",
         )
 

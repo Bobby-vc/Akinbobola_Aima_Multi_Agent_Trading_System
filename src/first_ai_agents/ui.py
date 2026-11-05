@@ -8,6 +8,7 @@ before it is placed in HTML.
 import base64
 import html
 import json
+import math
 from datetime import datetime
 
 from first_ai_agents.signals import parse_sentiment, parse_signal
@@ -103,8 +104,19 @@ def fmt_time(iso: str | None) -> str:
     return datetime.fromisoformat(iso).strftime("%b %d, %H:%M UTC")
 
 
+def _missing(value) -> bool:
+    return value is None or (isinstance(value, float) and math.isnan(value))
+
+
 def fmt_money(value) -> str:
-    return "—" if value is None else f"${float(value):,.2f}"
+    return "—" if _missing(value) else f"${float(value):,.2f}"
+
+
+def fmt_pct(value, signed: bool = True) -> str:
+    """+1.23% (or 61% unsigned, for rates); a dash for missing values."""
+    if _missing(value):
+        return "—"
+    return f"{float(value):+.2%}" if signed else f"{float(value):.0%}"
 
 
 def fmt_confidence(signal: dict | None) -> str:

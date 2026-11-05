@@ -18,7 +18,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 4, 2026 | Development log added | `8bb96c9` |
 | Nov 4, 2026 | Test suite added; leftover files removed | `db9559a` |
 | Nov 4, 2026 | Deprecated `datetime.utcnow()` replaced | `24acc9b` |
-| Nov 4, 2026 | Confidence threshold enforced | (this change) |
+| Nov 4, 2026 | Confidence threshold enforced | `a747b46` |
+| Nov 5, 2026 | Signal Performance tab | (this change) |
 
 ---
 
@@ -158,6 +159,20 @@ Added a "Rule-Based Guardrails Around a Probabilistic Model" subsection to the R
 - Dashboard: a threshold slider in the question form; the Advisor card shows the confidence (green if it meets the threshold, amber if not) and the threshold; the decision banner explains a HOLD by comparing the two; Run History shows both.
 - `main.py`: the terminal version asks for a threshold (Enter for 0.7).
 - Tests: 30 new tests for parsing, the new monitor checks, the crew's run tracking, and the slider (78 in total).
+
+---
+
+## 12. Signal Performance tab (November 5, 2026)
+
+**Why:** The project is now for ITAI 3378 Finance in AI, where the first question about any trading model is whether its signals work. Nothing measured that.
+
+**What changed:**
+- `performance.py` (new): scores each past signal against daily prices. Entry is the first market close after the signal (so no earlier price is used), and returns are measured 1, 5, and 20 trading days later from adjusted closes, against SPY. It reports hit rate with a 95% Wilson confidence interval, average return in the signal's direction, average excess over the market, calibration by confidence bucket, and hit rates for signals that cleared the threshold versus those it filtered out.
+- `app.py`: a Performance tab (first in the row) with a holding-period selector, those figures, a calibration chart, and a table of every signal. Prices are cached for an hour. A warning appears when fewer than 20 signals have been scored.
+- Tables on the Trades and Risk Monitor tabs now show a dash instead of "None" for empty cells; Streamlit ignores formatting for empty cells, so they are converted to text first.
+- Tests: 18 new tests (96 in total), including scoring on price series with known answers, the entry-time rules, the Wilson interval against a published value, and the tab itself with offline prices.
+
+**Note:** The tab needs real runs to say anything. At the time it was added, `trading.db` had no runs, so building a sample of 20 or more signals is the next step.
 
 ---
 
