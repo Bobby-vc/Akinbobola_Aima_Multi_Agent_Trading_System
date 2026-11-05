@@ -1,9 +1,11 @@
+import os
 import sqlite3
 import json
 from datetime import datetime
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent.parent / "trading.db"
+# AIMA_DB_PATH points the app at a different database, e.g. a demo or test copy
+DB_PATH = Path(os.getenv("AIMA_DB_PATH") or Path(__file__).parent.parent.parent / "trading.db")
 
 
 def get_conn() -> sqlite3.Connection:
@@ -64,21 +66,27 @@ def init_db():
             );
         """)
         # Columns added after the first release; existing databases need them too
-        existing = {row["name"] for row in conn.execute("PRAGMA table_info(trade_history)")}
-        for column, col_type in (("filled_avg_price", "REAL"), ("updated_at", "TEXT")):
-            if column not in existing:
-                conn.execute(f"ALTER TABLE trade_history ADD COLUMN {column} {col_type}")
+        _add_missing_columns(conn, "trade_history", (("filled_avg_price", "REAL"), ("updated_at", "TEXT")))
+        _add_missing_columns(conn, "crew_runs", (("started_at", "TEXT"),))
+
+
+def _add_missing_columns(conn: sqlite3.Connection, table: str, columns):
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for column, col_type in columns:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
 
 
 # --- crew runs ---
 
 def log_crew_run(question: str, ticker: str, experience: str, threshold: float,
-                 analysis: str, trade_signal: str, raw_output: str) -> int:
+                 analysis: str, trade_signal: str, raw_output: str,
+                 started_at: str | None = None) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            """INSERT INTO crew_runs (run_at, question, ticker, experience, threshold,
-               analysis, trade_signal, raw_output) VALUES (?,?,?,?,?,?,?,?)""",
-            (datetime.utcnow().isoformat(), question, ticker, experience,
+            """INSERT INTO crew_runs (run_at, started_at, question, ticker, experience, threshold,
+               analysis, trade_signal, raw_output) VALUES (?,?,?,?,?,?,?,?,?)""",
+            (datetime.utcnow().isoformat(), started_at, question, ticker, experience,
              threshold, analysis, trade_signal, raw_output),
         )
         return cur.lastrowid
@@ -89,6 +97,11 @@ def get_crew_runs(limit: int = 50):
         return conn.execute(
             "SELECT * FROM crew_runs ORDER BY run_at DESC LIMIT ?", (limit,)
         ).fetchall()
+
+
+def get_crew_run(run_id: int):
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM crew_runs WHERE id=?", (run_id,)).fetchone()
 
 
 # --- trades ---
@@ -110,8 +123,18 @@ def get_trades(limit: int = 100):
         ).fetchall()
 
 
-# Order statuses that will not change again, so the monitor stops checking them
-FINAL_ORDER_STATUSES = ("filled", "canceled", "expired", "rejected", "replaced", "blocked")
+def get_trades_between(start: str, end: str):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM trade_history WHERE traded_at BETWEEN ? AND ? ORDER BY traded_at",
+            (start, end),
+        ).fetchall()
+
+
+# Order statuses that will not change again, so the monitor stops checking them.
+# "blocked" and "failed" are set locally for orders that never reached Alpaca.
+FINAL_ORDER_STATUSES = ("filled", "canceled", "expired", "rejected", "replaced", "blocked", "failed")
+NOT_SUBMITTED_STATUSES = ("blocked", "failed")
 
 
 def get_unsettled_trades():
@@ -134,11 +157,12 @@ def update_trade_status(order_id: str, status: str, filled_avg_price: float | No
 
 
 def count_trades_today() -> int:
-    """Counts today's (UTC) trades, not including orders the monitor blocked."""
+    """Counts today's (UTC) trades, not including orders that never reached Alpaca."""
     with get_conn() as conn:
         return conn.execute(
             """SELECT COUNT(*) FROM trade_history
-               WHERE traded_at >= date('now') AND COALESCE(status, '') != 'blocked'"""
+               WHERE traded_at >= date('now') AND COALESCE(status, '') NOT IN (?, ?)""",
+            NOT_SUBMITTED_STATUSES,
         ).fetchone()[0]
 
 
@@ -203,6 +227,14 @@ def get_monitor_events(limit: int = 100):
     with get_conn() as conn:
         return conn.execute(
             "SELECT * FROM monitor_events ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+
+def get_monitor_events_between(start: str, end: str):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM monitor_events WHERE created_at BETWEEN ? AND ? ORDER BY created_at",
+            (start, end),
         ).fetchall()
 
 

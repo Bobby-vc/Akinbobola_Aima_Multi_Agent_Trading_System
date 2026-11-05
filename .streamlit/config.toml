@@ -1,0 +1,11 @@
+[theme]
+base = "dark"
+primaryColor = "#3DD6C6"
+backgroundColor = "#0B0F14"
+secondaryBackgroundColor = "#111821"
+textColor = "#E6EDF3"
+borderColor = "#223041"
+showWidgetBorder = true
+baseRadius = "10px"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap"

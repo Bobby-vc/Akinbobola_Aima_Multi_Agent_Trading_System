@@ -84,6 +84,7 @@ def execute_paper_trade(ticker: str, qty: int, side: str) -> str:
             f"Disclaimer: This is a simulated paper trade. Not real financial advice."
         )
     except Exception as e:
+        log_trade(ticker, qty, side, None, "failed")
         return f"Trade execution failed: {str(e)}"
 
 

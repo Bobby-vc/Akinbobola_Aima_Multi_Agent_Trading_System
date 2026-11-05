@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, after_kickoff, before_kickoff, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
@@ -72,11 +74,20 @@ class FirstAiAgents():
     @before_kickoff
     def capture_inputs(self, inputs):
         self.run_inputs = dict(inputs or {})
+        self.run_started_at = datetime.utcnow().isoformat()
         return inputs
 
     @after_kickoff
-    def log_run(self, result):
-        # Logging must never break a run, so failures are reported and skipped
+    def finish_run(self, result):
+        # One hook so the monitor's checks are always recorded inside the run's
+        # time window. Neither step may break a run, so failures are printed.
+        try:
+            # The risk monitor is rule-based, not an LLM agent, so it runs as a hook
+            for finding in run_checks(get_alpaca_api()):
+                print(f"[Risk monitor] {finding}")
+        except Exception as e:
+            print(f"Risk monitor checks failed: {e}")
+
         try:
             inputs = getattr(self, "run_inputs", {})
             tasks_output = result.tasks_output or []
@@ -88,17 +99,8 @@ class FirstAiAgents():
                 analysis=tasks_output[0].raw if len(tasks_output) > 0 else "",
                 trade_signal=tasks_output[1].raw if len(tasks_output) > 1 else "",
                 raw_output=result.raw,
+                started_at=getattr(self, "run_started_at", None),
             )
         except Exception as e:
             print(f"Could not log crew run to database: {e}")
-        return result
-
-    @after_kickoff
-    def run_monitor(self, result):
-        # The risk monitor is rule-based, not an LLM agent, so it runs as a hook
-        try:
-            for finding in run_checks(get_alpaca_api()):
-                print(f"[Risk monitor] {finding}")
-        except Exception as e:
-            print(f"Risk monitor checks failed: {e}")
         return result

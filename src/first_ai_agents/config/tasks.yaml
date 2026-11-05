@@ -12,7 +12,8 @@ analyze_investment_question:
     3. Cross-reference the price data with the news sentiment.
     4. Generate a clear trade recommendation (Buy / Hold / Sell) with reasoning,
        written at the appropriate level for a {experience_level} investor.
-    5. Include a structured trade signal at the end of your response in this format:
+    5. End your response with these two lines, exactly in this format:
+       SENTIMENT: [BULLISH/BEARISH/NEUTRAL]
        TRADE SIGNAL: [BUY/HOLD/SELL] {ticker} | Qty: 5 | Confidence: [HIGH/MEDIUM/LOW]
   expected_output: >
     A structured investment analysis containing:
@@ -21,7 +22,8 @@ analyze_investment_question:
     - Key risk factors
     - A clear recommendation (Buy / Hold / Sell) with reasoning written for
       a {experience_level} investor
-    - A final TRADE SIGNAL line: BUY/HOLD/SELL {ticker} | Qty: 5 | Confidence: HIGH/MEDIUM/LOW
+    - A SENTIMENT line: SENTIMENT: BULLISH/BEARISH/NEUTRAL
+    - A final TRADE SIGNAL line: TRADE SIGNAL: BUY/HOLD/SELL {ticker} | Qty: 5 | Confidence: HIGH/MEDIUM/LOW
   agent: advisor_agent
 
 evaluate_trade_signal:

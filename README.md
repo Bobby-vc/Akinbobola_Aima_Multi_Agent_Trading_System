@@ -159,13 +159,16 @@ The same pipeline can be run from a browser using the Streamlit dashboard:
 uv run streamlit run src/first_ai_agents/app.py
 ```
 
-The dashboard provides:
-- **Analysis form**: enter a question, ticker, and experience level, then run both agents with a live progress indicator
-- **Trade report**: the generated `trade_report.md`, rendered on the page, plus collapsible agent logs
-- **Portfolio sidebar**: cash, portfolio value, buying power, and open positions with P&L, fetched live from Alpaca
-- **Trade History tab**: total, buy, and sell counts plus a table of every recorded trade
-- **Portfolio Snapshots tab**: portfolio value and cash over time, plus open positions from the latest snapshot
-- **Risk Monitor tab**: the active limits, a button to run the post-run checks on demand, and a log of every block, order update, and alert
+Run it from the project root so Streamlit picks up the theme in `.streamlit/config.toml`. The dashboard is laid out as an agent control room:
+
+- **Account bar**: portfolio value (with the change since the previous snapshot), cash, buying power, and position count. **Sync** loads the latest figures from Alpaca.
+- **Question form**: a question, a ticker, and an experience level.
+- **Agent pipeline**: one card each for the Advisor, Trader, and Risk Monitor. During a run the cards light up as each agent works; afterwards they show the Advisor's sentiment, signal, and 5-day price trend, the Trader's decision and order status, and the Monitor's checks and warnings.
+- **Decision banner**: BUY, SELL, HOLD, BLOCKED, or FAILED, with the order details and the reason. It reflects what was actually recorded (orders, blocks, and failures), not the Trader's own description.
+- **Advisor analysis and Trader report**: the full text from each agent, plus the agent logs for runs made in the current session.
+- **Tabs**: Positions with color-coded P&L, every Trade, a Portfolio value chart, the Risk Monitor's limits and event log, and a Run History that lets you show any past run in the pipeline.
+
+To preview the dashboard against a different database (for example a demo copy), set `AIMA_DB_PATH` to its path before starting Streamlit.
 
 ---
 
@@ -196,12 +199,14 @@ first_ai_agents/
 │   │   └── risk_limits.yaml   # Hard limits enforced by the Risk Monitor
 │   ├── tools/
 │   │   └── custom_tool.py     # yfinance and Alpaca tool definitions
-│   ├── app.py                 # Streamlit web dashboard
+│   ├── app.py                 # Streamlit web dashboard (layout)
+│   ├── ui.py                  # Dashboard components and theme CSS
 │   ├── broker.py              # Shared Alpaca client and portfolio snapshots
 │   ├── crew.py                # Crew assembly and agent/task wiring
 │   ├── database.py            # SQLite schema and read/write helpers
 │   ├── monitor.py             # Rule-based Risk Monitor
 │   └── main.py                # Entry point with user input prompts
+├── .streamlit/config.toml     # Dashboard theme (colors and fonts)
 ├── trade_report.md            # Auto-generated after each run
 ├── trading.db                 # SQLite database (created on first use, not committed)
 ├── pyproject.toml
