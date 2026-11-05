@@ -1,14 +1,9 @@
-import os
 import yfinance as yf
-import alpaca_trade_api as tradeapi
 from crewai.tools import tool
-from dotenv import load_dotenv
 
-from first_ai_agents.database import (
-    cache_stock_data, get_cached_stock, log_trade, log_portfolio_snapshot,
-)
-
-load_dotenv()
+from first_ai_agents.broker import get_alpaca_api, record_portfolio_snapshot
+from first_ai_agents.database import cache_stock_data, get_cached_stock, log_trade
+from first_ai_agents.monitor import check_order
 
 
 @tool("Get Stock Price Data")
@@ -62,13 +57,17 @@ def execute_paper_trade(ticker: str, qty: int, side: str) -> str:
     ticker: stock symbol (e.g. 'AAPL')
     qty: number of shares to trade
     side: must be 'buy' or 'sell'
-    All trades go to the paper trading sandbox — no real money involved."""
-    api = tradeapi.REST(
-        os.getenv("APCA_API_KEY_ID"),
-        os.getenv("APCA_API_SECRET_KEY"),
-        base_url=os.getenv("APCA_API_BASE_URL")
-    )
+    All trades go to the paper trading sandbox — no real money involved.
+    Every order is checked by the risk monitor first and may be blocked."""
+    api = get_alpaca_api()
     try:
+        allowed, reason = check_order(api, ticker, qty, side)
+        if not allowed:
+            log_trade(ticker, qty, side, None, "blocked")
+            return (
+                f"Order BLOCKED by the risk monitor: {reason}\n"
+                f"Do not retry or resize this order. Report it as BLOCKED with this reason."
+            )
         order = api.submit_order(
             symbol=ticker,
             qty=qty,
@@ -92,29 +91,8 @@ def execute_paper_trade(ticker: str, qty: int, side: str) -> str:
 def get_portfolio() -> str:
     """Returns the current paper trading portfolio from Alpaca,
     including cash balance, total portfolio value, and open positions."""
-    api = tradeapi.REST(
-        os.getenv("APCA_API_KEY_ID"),
-        os.getenv("APCA_API_SECRET_KEY"),
-        base_url=os.getenv("APCA_API_BASE_URL")
-    )
     try:
-        account = api.get_account()
-        positions = api.list_positions()
-        log_portfolio_snapshot(
-            cash=float(account.cash),
-            portfolio_value=float(account.portfolio_value),
-            buying_power=float(account.buying_power),
-            positions=[
-                {
-                    "symbol": p.symbol,
-                    "qty": p.qty,
-                    "avg_entry_price": p.avg_entry_price,
-                    "current_price": p.current_price,
-                    "unrealized_pl": p.unrealized_pl,
-                }
-                for p in positions
-            ],
-        )
+        account, positions = record_portfolio_snapshot(get_alpaca_api())
         if positions:
             pos_str = "\n".join([
                 f"  {p.symbol}: {p.qty} shares @ avg ${p.avg_entry_price} "

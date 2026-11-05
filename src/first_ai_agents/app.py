@@ -40,31 +40,8 @@ with st.sidebar:
     if st.button("🔄 Refresh Portfolio", use_container_width=True):
         with st.spinner("Fetching portfolio..."):
             try:
-                import alpaca_trade_api as tradeapi
-                api = tradeapi.REST(
-                    os.getenv("APCA_API_KEY_ID"),
-                    os.getenv("APCA_API_SECRET_KEY"),
-                    base_url=os.getenv("APCA_API_BASE_URL"),
-                )
-                account = api.get_account()
-                positions = api.list_positions()
-
-                from first_ai_agents.database import log_portfolio_snapshot
-                log_portfolio_snapshot(
-                    cash=float(account.cash),
-                    portfolio_value=float(account.portfolio_value),
-                    buying_power=float(account.buying_power),
-                    positions=[
-                        {
-                            "symbol": p.symbol,
-                            "qty": p.qty,
-                            "avg_entry_price": p.avg_entry_price,
-                            "current_price": p.current_price,
-                            "unrealized_pl": p.unrealized_pl,
-                        }
-                        for p in positions
-                    ],
-                )
+                from first_ai_agents.broker import get_alpaca_api, record_portfolio_snapshot
+                account, positions = record_portfolio_snapshot(get_alpaca_api())
 
                 st.metric("💵 Cash", f"${float(account.cash):,.2f}")
                 st.metric("📦 Portfolio Value", f"${float(account.portfolio_value):,.2f}")
@@ -170,9 +147,12 @@ src_path = os.path.join(os.path.dirname(__file__), "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from first_ai_agents.database import get_trades, get_portfolio_snapshots
+from first_ai_agents.database import get_trades, get_portfolio_snapshots, get_monitor_events
+from first_ai_agents.monitor import load_limits
 
-tab_trades, tab_portfolio = st.tabs(["📋 Trade History", "📊 Portfolio Snapshots"])
+tab_trades, tab_portfolio, tab_monitor = st.tabs(
+    ["📋 Trade History", "📊 Portfolio Snapshots", "🛡️ Risk Monitor"]
+)
 
 with tab_trades:
     trades = get_trades(limit=200)
@@ -182,15 +162,16 @@ with tab_trades:
         df = pd.DataFrame([dict(t) for t in trades])
         df["traded_at"] = pd.to_datetime(df["traded_at"])
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total Trades", len(df))
         c2.metric("Buys", int((df["side"] == "buy").sum()))
         c3.metric("Sells", int((df["side"] == "sell").sum()))
+        c4.metric("Blocked", int((df["status"] == "blocked").sum()))
 
         st.dataframe(
-            df[["traded_at", "ticker", "side", "qty", "order_id", "status"]].rename(columns={
-                "traded_at": "Time", "ticker": "Ticker", "side": "Side",
-                "qty": "Qty", "order_id": "Order ID", "status": "Status",
+            df[["traded_at", "ticker", "side", "qty", "status", "filled_avg_price", "order_id"]].rename(columns={
+                "traded_at": "Time", "ticker": "Ticker", "side": "Side", "qty": "Qty",
+                "status": "Status", "filled_avg_price": "Fill Price", "order_id": "Order ID",
             }),
             use_container_width=True,
         )
@@ -217,3 +198,48 @@ with tab_portfolio:
         if positions:
             st.subheader("Open Positions (latest snapshot)")
             st.dataframe(pd.DataFrame(positions), use_container_width=True)
+
+with tab_monitor:
+    st.caption(
+        "The risk monitor is rule-based and uses no LLM. It blocks orders that break the "
+        "limits below, and after each run it updates order statuses and flags risky positions."
+    )
+
+    if st.button("🛡️ Run checks now"):
+        with st.spinner("Checking orders and positions..."):
+            try:
+                from first_ai_agents.broker import get_alpaca_api
+                from first_ai_agents.monitor import run_checks
+                findings = run_checks(get_alpaca_api())
+                if findings:
+                    for finding in findings:
+                        st.warning(finding)
+                else:
+                    st.success("All checks passed.")
+            except Exception as e:
+                st.error(f"Checks failed: {e}")
+
+    limits = load_limits()
+    st.subheader("Active Limits")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Max Shares / Order", limits["max_qty_per_order"])
+    c2.metric("Max Trades / Day", limits["max_trades_per_day"])
+    c3.metric("Max Buy (of Cash)", f"{limits['max_order_pct_of_cash']:.0%}")
+    c4.metric("Max Position Size", f"{limits['max_position_pct_of_portfolio']:.0%}")
+    c5.metric("Loss Alert", f"{limits['position_loss_alert_pct']:.0%}")
+    st.caption("Edit `src/first_ai_agents/config/risk_limits.yaml` to change these.")
+
+    st.subheader("Monitor Events")
+    events = get_monitor_events(limit=200)
+    if not events:
+        st.info("No monitor events yet. They appear after a run or when you click 'Run checks now'.")
+    else:
+        df = pd.DataFrame([dict(e) for e in events])
+        df["created_at"] = pd.to_datetime(df["created_at"])
+        st.dataframe(
+            df[["created_at", "level", "category", "ticker", "message"]].rename(columns={
+                "created_at": "Time", "level": "Level", "category": "Type",
+                "ticker": "Ticker", "message": "Message",
+            }),
+            use_container_width=True,
+        )

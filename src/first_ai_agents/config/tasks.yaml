@@ -37,8 +37,11 @@ evaluate_trade_signal:
          and side="buy" or "sell" based on the signal.
     3. If the signal is HOLD or confidence is LOW:
        - Do not execute. Explain why you are holding.
-    4. Report the full trade decision including the Advisor's reasoning and
-       your execution result or hold justification.
+    4. If the "Execute Paper Trade" tool reports the order was BLOCKED by the
+       risk monitor, do not retry or change the order. Report the decision as
+       BLOCKED and quote the monitor's reason.
+    5. Report the full trade decision including the Advisor's reasoning and
+       your execution result, hold justification, or block reason.
 
     Confidence threshold: {confidence_threshold}
     Disclaimer: This is a simulated paper trade. Not real financial advice.
@@ -46,9 +49,10 @@ evaluate_trade_signal:
     A trade decision report containing:
     - Summary of the Advisor's recommendation
     - Portfolio status (cash and current positions)
-    - Decision: EXECUTE or HOLD
+    - Decision: EXECUTE, HOLD, or BLOCKED
     - If EXECUTE: order confirmation with Order ID and status from Alpaca
     - If HOLD: explanation of why the threshold was not met
+    - If BLOCKED: the risk monitor's reason for blocking the order
     - Disclaimer that this is paper trading only
   agent: trader_agent
   context:

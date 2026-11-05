@@ -2,7 +2,9 @@ from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, after_kickoff, before_kickoff, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from first_ai_agents.tools.custom_tool import get_stock_data, get_stock_news, execute_paper_trade, get_portfolio
+from first_ai_agents.broker import get_alpaca_api
 from first_ai_agents.database import log_crew_run
+from first_ai_agents.monitor import run_checks
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
 # https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
@@ -89,4 +91,14 @@ class FirstAiAgents():
             )
         except Exception as e:
             print(f"Could not log crew run to database: {e}")
+        return result
+
+    @after_kickoff
+    def run_monitor(self, result):
+        # The risk monitor is rule-based, not an LLM agent, so it runs as a hook
+        try:
+            for finding in run_checks(get_alpaca_api()):
+                print(f"[Risk monitor] {finding}")
+        except Exception as e:
+            print(f"Risk monitor checks failed: {e}")
         return result

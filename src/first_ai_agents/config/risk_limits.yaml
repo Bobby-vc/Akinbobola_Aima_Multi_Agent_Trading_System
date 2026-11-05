@@ -1,0 +1,18 @@
+# Hard limits enforced by the risk monitor (monitor.py).
+# The Trader cannot override these: any order that breaks one is blocked
+# before it reaches Alpaca. Percentages are written as fractions (0.10 = 10%).
+
+# Largest number of shares allowed in a single order
+max_qty_per_order: 100
+
+# Most orders allowed per day (UTC); blocked orders do not count
+max_trades_per_day: 5
+
+# Largest buy allowed, as a share of available cash
+max_order_pct_of_cash: 0.25
+
+# Largest any one position may grow to, as a share of total portfolio value
+max_position_pct_of_portfolio: 0.10
+
+# Flag a position once it is down this much from its average entry price
+position_loss_alert_pct: 0.10

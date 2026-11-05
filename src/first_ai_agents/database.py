@@ -53,7 +53,21 @@ def init_db():
                 data_json   TEXT NOT NULL,
                 PRIMARY KEY (ticker)
             );
+
+            CREATE TABLE IF NOT EXISTS monitor_events (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at  TEXT NOT NULL,
+                level       TEXT NOT NULL,
+                category    TEXT NOT NULL,
+                ticker      TEXT,
+                message     TEXT NOT NULL
+            );
         """)
+        # Columns added after the first release; existing databases need them too
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(trade_history)")}
+        for column, col_type in (("filled_avg_price", "REAL"), ("updated_at", "TEXT")):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE trade_history ADD COLUMN {column} {col_type}")
 
 
 # --- crew runs ---
@@ -94,6 +108,38 @@ def get_trades(limit: int = 100):
         return conn.execute(
             "SELECT * FROM trade_history ORDER BY traded_at DESC LIMIT ?", (limit,)
         ).fetchall()
+
+
+# Order statuses that will not change again, so the monitor stops checking them
+FINAL_ORDER_STATUSES = ("filled", "canceled", "expired", "rejected", "replaced", "blocked")
+
+
+def get_unsettled_trades():
+    placeholders = ",".join("?" * len(FINAL_ORDER_STATUSES))
+    with get_conn() as conn:
+        return conn.execute(
+            f"""SELECT * FROM trade_history
+                WHERE order_id IS NOT NULL AND COALESCE(status, '') NOT IN ({placeholders})""",
+            FINAL_ORDER_STATUSES,
+        ).fetchall()
+
+
+def update_trade_status(order_id: str, status: str, filled_avg_price: float | None):
+    with get_conn() as conn:
+        conn.execute(
+            """UPDATE trade_history SET status=?, filled_avg_price=?, updated_at=?
+               WHERE order_id=?""",
+            (status, filled_avg_price, datetime.utcnow().isoformat(), order_id),
+        )
+
+
+def count_trades_today() -> int:
+    """Counts today's (UTC) trades, not including orders the monitor blocked."""
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT COUNT(*) FROM trade_history
+               WHERE traded_at >= date('now') AND COALESCE(status, '') != 'blocked'"""
+        ).fetchone()[0]
 
 
 # --- portfolio snapshots ---
@@ -140,6 +186,24 @@ def get_cached_stock(ticker: str, max_age_minutes: int = 15) -> dict | None:
     if age > max_age_minutes:
         return None
     return json.loads(row["data_json"])
+
+
+# --- monitor events ---
+
+def log_monitor_event(level: str, category: str, message: str, ticker: str | None = None):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO monitor_events (created_at, level, category, ticker, message)
+               VALUES (?,?,?,?,?)""",
+            (datetime.utcnow().isoformat(), level, category, ticker, message),
+        )
+
+
+def get_monitor_events(limit: int = 100):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM monitor_events ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
 
 
 init_db()

@@ -9,10 +9,11 @@ Demo: https://drive.google.com/file/d/1VLG0AVz0deRrmIlhUtg4bDtiqcClM9aq/view?usp
 
 ## Overview
 
-A dual-agent AI system that combines natural language understanding with quantitative analysis to educate users about the stock market and execute paper trades on their behalf. The system bridges the gap between learning platforms and trading apps by doing both in a single pipeline.
+A multi-agent AI system that combines natural language understanding with quantitative analysis to educate users about the stock market and execute paper trades on their behalf. The system bridges the gap between learning platforms and trading apps by doing both in a single pipeline.
 
 - **Agent 1 — The Advisor**: Accepts a user's investment question, fetches live price data and recent news headlines, performs sentiment analysis, and generates a plain-language recommendation tuned to the user's experience level.
 - **Agent 2 — The Trader**: Receives the Advisor's trade signal, checks the current portfolio, and executes a paper trade via the Alpaca Markets API if confidence is sufficient.
+- **Agent 3 — The Risk Monitor**: A rule-based agent with no LLM. It blocks any order that breaks a hard risk limit before it reaches Alpaca, and after each run it updates order statuses and flags risky positions.
 
 The two agents communicate through a shared task pipeline managed by CrewAI, mirroring how real financial firms separate research and execution desks.
 
@@ -31,11 +32,41 @@ Agent 1: Advisor (GPT-4o)
         v
 Agent 2: Trader (GPT-4o)
   - Tools: Check Portfolio, Execute Paper Trade (Alpaca API)
-  - Outputs: Order confirmation or HOLD justification
-        |
+  - Outputs: Order confirmation, HOLD justification, or BLOCKED reason
+        |        ^
+        |        |  every order is checked first
+        |   Agent 3: Risk Monitor (rule-based, no LLM)
+        |     - Blocks orders that break the limits in risk_limits.yaml
         v
 trade_report.md (saved to project root)
+        |
+        v
+Risk Monitor post-run checks
+  - Updates order statuses and fill prices from Alpaca
+  - Saves a portfolio snapshot and flags losing or oversized positions
 ```
+
+### Risk Monitor
+
+The Risk Monitor applies fixed rules instead of model reasoning, so the Trader cannot talk its way past them. Before any order is submitted, it blocks the order if:
+
+- It is larger than the per-order share limit
+- The daily trade limit has been reached
+- It sells more shares than are held (no short selling)
+- A buy would use more than the allowed share of available cash
+- A buy would grow one position past the allowed share of the portfolio
+
+Blocked orders are returned to the Trader with the reason, recorded with status `blocked`, and logged as monitor events. After each run, the monitor checks every unsettled order with Alpaca, records whether it filled (and at what price), was canceled, or was rejected, and flags any position that has lost more than the alert threshold or grown too large.
+
+The limits live in `src/first_ai_agents/config/risk_limits.yaml`:
+
+| Limit | Default |
+|-------|---------|
+| `max_qty_per_order` | 100 shares |
+| `max_trades_per_day` | 5 |
+| `max_order_pct_of_cash` | 25% |
+| `max_position_pct_of_portfolio` | 10% |
+| `position_loss_alert_pct` | 10% |
 
 ---
 
@@ -84,8 +115,8 @@ Internally, GPT-4o converts all inputs: user questions, news headlines, and pric
 
 **1. Clone the repository**
 ```bash
-git clone https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
-cd YOUR_REPO_NAME
+git clone https://github.com/Bobby-vc/Akinbobola_Aima_Multi_Agent_Trading_System.git
+cd Akinbobola_Aima_Multi_Agent_Trading_System
 ```
 
 **2. Install dependencies**
@@ -134,6 +165,7 @@ The dashboard provides:
 - **Portfolio sidebar**: cash, portfolio value, buying power, and open positions with P&L, fetched live from Alpaca
 - **Trade History tab**: total, buy, and sell counts plus a table of every recorded trade
 - **Portfolio Snapshots tab**: portfolio value and cash over time, plus open positions from the latest snapshot
+- **Risk Monitor tab**: the active limits, a button to run the post-run checks on demand, and a log of every block, order update, and alert
 
 ---
 
@@ -144,9 +176,10 @@ Run history is stored in a local SQLite file, `trading.db`, in the project root.
 | Table | Contents |
 |-------|----------|
 | `crew_runs` | Each run's question, ticker, experience level, Advisor analysis, and trade signal |
-| `trade_history` | Each paper trade: ticker, quantity, side, Alpaca order ID, and status |
+| `trade_history` | Each paper trade: ticker, quantity, side, Alpaca order ID, status, and fill price (blocked orders included) |
 | `portfolio_snapshots` | Cash, portfolio value, buying power, and open positions at a point in time |
 | `stock_cache` | Recent yfinance price data per ticker (treated as stale after 15 minutes) |
+| `monitor_events` | Every Risk Monitor block, order status change, position alert, and completed check |
 
 To browse the data directly, open `trading.db` with [DB Browser for SQLite](https://sqlitebrowser.org) or the `sqlite3` command-line tool.
 
@@ -159,12 +192,15 @@ first_ai_agents/
 ├── src/first_ai_agents/
 │   ├── config/
 │   │   ├── agents.yaml        # Agent roles, goals, and backstories
-│   │   └── tasks.yaml         # Task descriptions and agent assignments
+│   │   ├── tasks.yaml         # Task descriptions and agent assignments
+│   │   └── risk_limits.yaml   # Hard limits enforced by the Risk Monitor
 │   ├── tools/
 │   │   └── custom_tool.py     # yfinance and Alpaca tool definitions
 │   ├── app.py                 # Streamlit web dashboard
+│   ├── broker.py              # Shared Alpaca client and portfolio snapshots
 │   ├── crew.py                # Crew assembly and agent/task wiring
 │   ├── database.py            # SQLite schema and read/write helpers
+│   ├── monitor.py             # Rule-based Risk Monitor
 │   └── main.py                # Entry point with user input prompts
 ├── trade_report.md            # Auto-generated after each run
 ├── trading.db                 # SQLite database (created on first use, not committed)
