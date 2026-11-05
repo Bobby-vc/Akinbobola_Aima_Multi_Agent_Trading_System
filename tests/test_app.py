@@ -1,6 +1,5 @@
 """Runs the dashboard with Streamlit's test runner and a stand-in crew."""
 import time
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -19,7 +18,7 @@ class FakeCrew:
     error = None
 
     def kickoff(self, inputs):
-        started = datetime.utcnow().isoformat()
+        started = db.utc_now().isoformat()
         time.sleep(0.4)
         self.task_callback("advisor output")
         time.sleep(0.4)

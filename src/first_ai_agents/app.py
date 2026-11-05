@@ -2,7 +2,6 @@ import contextlib
 import json
 import threading
 import time
-from datetime import datetime
 from io import StringIO
 
 import altair as alt
@@ -13,7 +12,7 @@ from dotenv import load_dotenv
 from first_ai_agents import ui
 from first_ai_agents.database import (
     get_cached_stock, get_crew_run, get_crew_runs, get_monitor_events,
-    get_monitor_events_between, get_portfolio_snapshots, get_trades, get_trades_between,
+    get_monitor_events_between, get_portfolio_snapshots, get_trades, get_trades_between, utc_now,
 )
 from first_ai_agents.monitor import load_limits
 
@@ -100,7 +99,7 @@ if submitted:
     if not question or not ticker:
         st.warning("Enter both an investment question and a ticker.")
     else:
-        started = datetime.utcnow().isoformat()
+        started = utc_now().isoformat()
         error, logs = run_crew_live(
             {
                 "question": question,

@@ -16,7 +16,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 4, 2026 | Dashboard redesigned as an agent control room | `50b9740` |
 | Nov 4, 2026 | Risk Monitor added to Deep Learning Connections | `80595b3` |
 | Nov 4, 2026 | Development log added | `8bb96c9` |
-| Nov 4, 2026 | Test suite added; leftover files removed | (this change) |
+| Nov 4, 2026 | Test suite added; leftover files removed | `db9559a` |
+| Nov 4, 2026 | Deprecated `datetime.utcnow()` replaced | (this change) |
 
 ---
 
@@ -136,6 +137,14 @@ Added a "Rule-Based Guardrails Around a Probabilistic Model" subsection to the R
 
 ---
 
+## 10. Deprecated `datetime.utcnow()` replaced (November 4, 2026)
+
+**Why:** `datetime.utcnow()` is deprecated in recent Python versions, and the test suite printed about 50 warnings about it.
+
+**What changed:** `database.py` has a `utc_now()` helper that `crew.py`, `app.py`, and the tests now use instead. It does not simply switch to `datetime.now(timezone.utc)`, because that adds a `+00:00` suffix that existing rows in `trading.db` do not have. Mixing the two formats would break the text comparisons that match trades to runs, and cache-age arithmetic would fail when subtracting an old timestamp from a new one. `utc_now()` takes the current UTC time and drops the timezone, so new timestamps match the stored format. A new test checks this.
+
+---
+
 ## How the changes were tested
 
 The checks below are now part of the test suite in `tests/` (see step 9).
@@ -156,5 +165,4 @@ The checks below are now part of the test suite in `tests/` (see step 9).
 - **The confidence threshold is not applied numerically.** Every run passes `confidence_threshold: 0.7`, but the Trader decides from HIGH/MEDIUM/LOW labels, and the order size is fixed at 5 shares in `tasks.yaml`.
 - **Position warnings repeat.** A position that stays over a limit is flagged again after every run.
 - **The daily trade limit uses UTC days,** not the market's trading day.
-- **`datetime.utcnow()` is deprecated** in recent Python versions and is used throughout `database.py`, `crew.py`, and the tests. It still works, but running the tests prints deprecation warnings; switching to `datetime.now(timezone.utc)` would remove them.
 - **The OneDrive copy** at `Documents\CrewAI 101\first_ai_agents` is a separate local folder that is not linked to this repository and has diverged from it.

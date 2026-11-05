@@ -74,3 +74,16 @@ def test_old_databases_gain_new_columns(tmp_path, monkeypatch):
     assert db.get_trades()[0]["order_id"] == "old-1"
     assert db.get_trades()[0]["filled_avg_price"] is None
     assert db.get_crew_runs()[0]["started_at"] is None
+
+
+def test_timestamps_keep_the_stored_format(temp_db):
+    # Rows saved before utc_now() existed have no timezone suffix; new rows must match
+    # so that text comparisons and cache-age arithmetic keep working on old data.
+    assert db.utc_now().tzinfo is None
+    db.log_trade("AAPL", 5, "buy", "o1", "accepted")
+    assert "+" not in db.get_trades()[0]["traded_at"]
+
+    with db.get_conn() as conn:
+        conn.execute("INSERT INTO stock_cache (ticker, cached_at, data_json) VALUES (?,?,?)",
+                     ("OLD", "2026-01-01T00:00:00.000001", '{"formatted": "x"}'))
+    assert db.get_cached_stock("OLD") is None  # expired, and no naive/aware TypeError

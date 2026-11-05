@@ -1,11 +1,9 @@
-from datetime import datetime
-
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, after_kickoff, before_kickoff, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from first_ai_agents.tools.custom_tool import get_stock_data, get_stock_news, execute_paper_trade, get_portfolio
 from first_ai_agents.broker import get_alpaca_api
-from first_ai_agents.database import log_crew_run
+from first_ai_agents.database import log_crew_run, utc_now
 from first_ai_agents.monitor import run_checks
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
@@ -74,7 +72,7 @@ class FirstAiAgents():
     @before_kickoff
     def capture_inputs(self, inputs):
         self.run_inputs = dict(inputs or {})
-        self.run_started_at = datetime.utcnow().isoformat()
+        self.run_started_at = utc_now().isoformat()
         return inputs
 
     @after_kickoff

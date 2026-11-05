@@ -1,11 +1,17 @@
 import os
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # AIMA_DB_PATH points the app at a different database, e.g. a demo or test copy
 DB_PATH = Path(os.getenv("AIMA_DB_PATH") or Path(__file__).parent.parent.parent / "trading.db")
+
+
+def utc_now() -> datetime:
+    """The current UTC time without a timezone attached, matching the timestamps
+    already stored (utc_now() is deprecated)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def get_conn() -> sqlite3.Connection:
@@ -86,7 +92,7 @@ def log_crew_run(question: str, ticker: str, experience: str, threshold: float,
         cur = conn.execute(
             """INSERT INTO crew_runs (run_at, started_at, question, ticker, experience, threshold,
                analysis, trade_signal, raw_output) VALUES (?,?,?,?,?,?,?,?,?)""",
-            (datetime.utcnow().isoformat(), started_at, question, ticker, experience,
+            (utc_now().isoformat(), started_at, question, ticker, experience,
              threshold, analysis, trade_signal, raw_output),
         )
         return cur.lastrowid
@@ -112,7 +118,7 @@ def log_trade(ticker: str, qty: int, side: str, order_id: str,
         conn.execute(
             """INSERT INTO trade_history (traded_at, ticker, qty, side, order_id, status, crew_run_id)
                VALUES (?,?,?,?,?,?,?)""",
-            (datetime.utcnow().isoformat(), ticker, qty, side, order_id, status, crew_run_id),
+            (utc_now().isoformat(), ticker, qty, side, order_id, status, crew_run_id),
         )
 
 
@@ -152,7 +158,7 @@ def update_trade_status(order_id: str, status: str, filled_avg_price: float | No
         conn.execute(
             """UPDATE trade_history SET status=?, filled_avg_price=?, updated_at=?
                WHERE order_id=?""",
-            (status, filled_avg_price, datetime.utcnow().isoformat(), order_id),
+            (status, filled_avg_price, utc_now().isoformat(), order_id),
         )
 
 
@@ -174,7 +180,7 @@ def log_portfolio_snapshot(cash: float, portfolio_value: float,
         conn.execute(
             """INSERT INTO portfolio_snapshots (snapped_at, cash, portfolio_value, buying_power, positions_json)
                VALUES (?,?,?,?,?)""",
-            (datetime.utcnow().isoformat(), cash, portfolio_value,
+            (utc_now().isoformat(), cash, portfolio_value,
              buying_power, json.dumps(positions)),
         )
 
@@ -194,7 +200,7 @@ def cache_stock_data(ticker: str, data: dict):
             """INSERT INTO stock_cache (ticker, cached_at, data_json)
                VALUES (?,?,?)
                ON CONFLICT(ticker) DO UPDATE SET cached_at=excluded.cached_at, data_json=excluded.data_json""",
-            (ticker.upper(), datetime.utcnow().isoformat(), json.dumps(data)),
+            (ticker.upper(), utc_now().isoformat(), json.dumps(data)),
         )
 
 
@@ -206,7 +212,7 @@ def get_cached_stock(ticker: str, max_age_minutes: int = 15) -> dict | None:
     if not row:
         return None
     cached_at = datetime.fromisoformat(row["cached_at"])
-    age = (datetime.utcnow() - cached_at).total_seconds() / 60
+    age = (utc_now() - cached_at).total_seconds() / 60
     if age > max_age_minutes:
         return None
     return json.loads(row["data_json"])
@@ -219,7 +225,7 @@ def log_monitor_event(level: str, category: str, message: str, ticker: str | Non
         conn.execute(
             """INSERT INTO monitor_events (created_at, level, category, ticker, message)
                VALUES (?,?,?,?,?)""",
-            (datetime.utcnow().isoformat(), level, category, ticker, message),
+            (utc_now().isoformat(), level, category, ticker, message),
         )
 
 
