@@ -7,6 +7,8 @@ ITAI 2376 — Professor McManus
 ---
 Demo: https://drive.google.com/file/d/1VLG0AVz0deRrmIlhUtg4bDtiqcClM9aq/view?usp=drive_link
 
+Changes since the original submission are recorded in the [Development Log](docs/DEVELOPMENT_LOG.md).
+
 ## Overview
 
 A multi-agent AI system that combines natural language understanding with quantitative analysis to educate users about the stock market and execute paper trades on their behalf. The system bridges the gap between learning platforms and trading apps by doing both in a single pipeline.
