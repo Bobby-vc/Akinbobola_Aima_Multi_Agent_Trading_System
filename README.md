@@ -203,7 +203,7 @@ Each run uses OpenAI credit, and signals that clear the threshold place paper or
 **Running it on a schedule (Windows).** `scripts/run_watchlist.bat` runs the command from the project folder and appends each day's one-line summaries to `logs/scheduler.log`. To run it every weekday at 9:45 a.m. (an hour after the market opens in Central time), register it in Task Scheduler from PowerShell:
 
 ```powershell
-$action = New-ScheduledTaskAction -Execute "C:\path	o\project\scriptsun_watchlist.bat"
+$action = New-ScheduledTaskAction -Execute "C:\path\to\project\scripts\run_watchlist.bat"
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At 9:45am
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
 Register-ScheduledTask -TaskName "AIMA daily watchlist" -Action $action -Trigger $trigger -Settings $settings
