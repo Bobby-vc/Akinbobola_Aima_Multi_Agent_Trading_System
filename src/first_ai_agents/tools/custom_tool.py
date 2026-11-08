@@ -112,3 +112,19 @@ def get_portfolio() -> str:
         )
     except Exception as e:
         return f"Failed to retrieve portfolio: {str(e)}"
+
+@tool("Search SEC Filings")
+def search_sec_filings(ticker: str, query: str) -> str:
+    """Searches the company's latest 10-K annual report and 10-Q quarterly
+    report, filed with the SEC, for passages relevant to a query such as
+    "main risk factors", "revenue growth and outlook", or "competition".
+    Returns quoted passages with the filing type, filing date, and section."""
+    from first_ai_agents.filings import get_index
+    try:
+        results = get_index().search(ticker, query)
+    except Exception as e:
+        return f"SEC filings are unavailable for {ticker.upper()} right now ({e}). Continue without them."
+    if not results:
+        return f"No SEC filing passages found for {ticker.upper()}."
+    passages = "\n\n".join(f"[{r['form']} filed {r['filed']}, {r['section']}]\n{r['text']}" for r in results)
+    return f"Passages from {ticker.upper()}'s SEC filings for \"{query}\":\n\n{passages}"

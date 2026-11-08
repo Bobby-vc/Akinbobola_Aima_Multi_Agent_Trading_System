@@ -23,7 +23,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 7, 2026 | Daily watchlist runs | `e96e21c` |
 | Nov 7, 2026 | Project tailored to ITAI 3378 Finance in AI | `fcb3985` |
 | Nov 7, 2026 | First real runs: model and news fixes; new diagram | `8518fc2` |
-| Nov 7, 2026 | Daily schedule set up | (this change) |
+| Nov 7, 2026 | Daily schedule set up | `008cfc9` |
+| Nov 8, 2026 | SEC filings search with ChromaDB | (this change) |
 
 ---
 
@@ -229,6 +230,19 @@ At five tickers a day, the watchlist passes 20 runs on the fourth trading day; t
 
 ---
 
+## 17. SEC filings search with ChromaDB (November 8, 2026)
+
+**Why:** The Advisor judged companies from a price snapshot and headlines only. Their SEC filings hold the substance: the risk factors they must disclose and management's discussion of results.
+
+**What changed:**
+- `filings.py` (new): finds a ticker's latest 10-K and 10-Q on SEC EDGAR, strips the HTML and hidden XBRL data, tags passages by section, splits them into overlapping 1,500-character chunks, and stores them in a local ChromaDB with OpenAI `text-embedding-3-small` embeddings. Filings already stored are skipped, and a newer filing replaces the older one of the same type. `uv run index_filings` indexes ahead of time.
+- `tools/custom_tool.py`: a "Search SEC Filings" tool. If filings are unavailable, it says so and the Advisor continues without them.
+- `crew.py`, `config/tasks.yaml`, `config/agents.yaml`: the Advisor searches the filings at least twice per run (risk factors, then results and outlook) and cites the form and date of anything it uses.
+- `SEC_USER_AGENT` in `.env`: SEC refuses automated requests (error 403) unless they include a contact email.
+- Tests: 10 new tests (117 in total), using a fake EDGAR and a word-matching stand-in for OpenAI embeddings.
+
+---
+
 ## How the changes were tested
 
 The checks below are now part of the test suite in `tests/` (see step 9).
@@ -243,7 +257,6 @@ The checks below are now part of the test suite in `tests/` (see step 9).
 
 ## Known limitations and possible next steps
 
-- **SEC filings are not used yet.** Retrieving 10-K and 10-Q passages (for example with ChromaDB) would give the Advisor fundamentals beyond price and headlines.
 - **Older runs show less detail.** Runs saved before November 4, 2026 have no start time, so their trades and monitor events cannot be matched to them, and their Trader and Monitor cards say "not recorded".
 - **Agent logs are not saved.** The dashboard keeps them only for runs made since the page was opened.
 - **Order size is fixed** at 5 shares in `tasks.yaml`; it does not scale with confidence.

@@ -1,7 +1,9 @@
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, after_kickoff, before_kickoff, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
-from first_ai_agents.tools.custom_tool import get_stock_data, get_stock_news, execute_paper_trade, get_portfolio
+from first_ai_agents.tools.custom_tool import (
+    execute_paper_trade, get_portfolio, get_stock_data, get_stock_news, search_sec_filings,
+)
 from first_ai_agents.broker import get_alpaca_api
 from first_ai_agents.database import log_crew_run, utc_now
 from first_ai_agents.monitor import (
@@ -30,7 +32,7 @@ class FirstAiAgents():
     def advisor_agent(self) -> Agent:
         return Agent(
             config=self.agents_config['advisor_agent'], # type: ignore[index]
-            tools=[get_stock_data, get_stock_news], 
+            tools=[get_stock_data, get_stock_news, search_sec_filings],
             verbose=True
         )
 

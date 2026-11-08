@@ -6,6 +6,9 @@ trading.db
 # Agent output from scheduled watchlist runs
 logs/
 
+# Local ChromaDB index of SEC filings
+filings_db/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

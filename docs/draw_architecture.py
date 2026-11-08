@@ -80,8 +80,8 @@ box(50, 49.5, 64, 4.0, MUTED, "CrewAI orchestrator  ·  runs the desks in order 
 # Desks
 box(16, 35, 28, 16, ADVISOR, "Advisor", [
     "LLM agent · equity research analyst",
-    "Weighs valuation, price momentum,",
-    "and news sentiment",
+    "Weighs valuation, momentum, news,",
+    "and the company's SEC filings",
     "Ends every analysis with:",
     "SENTIMENT: BULLISH",
     "TRADE SIGNAL: BUY NVDA | 0.78",
@@ -109,10 +109,10 @@ arrow((30, 35), (36, 35), color=ADVISOR, label="signal +\nconfidence", label_at=
 arrow((64, 35), (70, 35), color=TRADER, label="every order\nchecked", label_at=(67, 38.2))
 
 # Data, records, and broker
-box(16, 16, 28, 10.6, DATA, "Market data & news", [
+box(16, 16, 28, 10.6, DATA, "Market data, news & filings", [
     "Yahoo Finance: price, 52-week range, P/E",
     "Alpaca news feed: stock-tagged headlines",
-    "Daily closes for scoring against SPY",
+    "SEC 10-K and 10-Q passages via ChromaDB",
 ], kind="INPUTS", title_size=11.5)
 box(50, 16, 28, 10.6, GREEN, "SQLite  ·  trading.db", [
     "Runs and their signals",
@@ -137,7 +137,7 @@ box(50, 4.8, 92, 6.2, MUTED,
 arrow((50, 10.7), (50, 7.9), color=GREEN)
 arrow((16, 10.7), (22, 7.9), color=DATA)
 
-ax.text(99, 0.2, "Stack: CrewAI · OpenAI GPT-4o · yfinance · Alpaca · Streamlit · SQLite · Python",
+ax.text(99, 0.2, "Stack: CrewAI · OpenAI GPT-4o · yfinance · Alpaca · SEC EDGAR · ChromaDB · Streamlit · SQLite · Python",
         color=MUTED, fontsize=8.5, ha="right", va="bottom")
 
 fig.savefig(sys.argv[1], facecolor=BG, bbox_inches="tight", pad_inches=0.3)

@@ -13,7 +13,7 @@ Demo: https://drive.google.com/file/d/1VLG0AVz0deRrmIlhUtg4bDtiqcClM9aq/view?usp
 
 A multi-agent AI system that combines natural language understanding with quantitative analysis to educate users about the stock market and execute paper trades on their behalf. The system bridges the gap between learning platforms and trading apps by doing both in a single pipeline.
 
-- **Agent 1 — The Advisor**: Accepts a user's investment question, fetches live price data and recent news headlines, performs sentiment analysis, and generates a plain-language recommendation tuned to the user's experience level.
+- **Agent 1 — The Advisor**: Accepts a user's investment question, fetches live price data, recent news headlines, and passages from the company's latest SEC filings, performs sentiment analysis, and generates a plain-language recommendation tuned to the user's experience level.
 - **Agent 2 — The Trader**: Receives the Advisor's trade signal, checks the current portfolio, and executes a paper trade via the Alpaca Markets API if confidence is sufficient.
 - **Agent 3 — The Risk Monitor**: A rule-based agent with no LLM. It blocks any order that breaks a hard risk limit before it reaches Alpaca, and after each run it updates order statuses and flags risky positions.
 
@@ -65,8 +65,8 @@ Trading firms keep the people who generate trade ideas apart from the people who
 **Pre-trade risk controls**
 In the US, broker-dealers that send orders to the market must check them against risk limits first (the SEC's Market Access Rule, Rule 15c3-5). The Risk Monitor applies the same kinds of checks before any order reaches Alpaca: a maximum order size, a daily order limit, a cap on how much cash one buy can use, a concentration limit that keeps any one stock under 10% of the portfolio, and no short selling. It also blocks any order that does not match the research signal behind it.
 
-**Signals from valuation, momentum, and sentiment**
-The Advisor combines three classic inputs: valuation (the P/E ratio), price momentum (recent closes and where the price sits in its 52-week range), and news sentiment. Reading sentiment from news is one of the main uses of AI in finance, because news can change how investors value a company well before it shows up in reported results.
+**Signals from valuation, momentum, sentiment, and fundamentals**
+The Advisor combines four inputs: valuation (the P/E ratio), price momentum (recent closes and where the price sits in its 52-week range), news sentiment, and fundamentals from the company's own SEC filings: the risk factors it is legally required to disclose and management's discussion of results in its latest 10-K and 10-Q. Reading sentiment from news is one of the main uses of AI in finance, because news can change how investors value a company well before it shows up in reported results.
 
 **Confidence thresholds and calibration**
 Every signal carries a confidence score from 0 to 1, and only signals at or above the threshold are traded. Raising the threshold means fewer trades that should be more reliable; lowering it means more trades and more noise. That trade-off only works if the scores are calibrated, meaning signals rated 0.8 are right about 80% of the time. The Performance tab measures this directly, and compares the hit rate of signals the threshold let through with the ones it held back.
@@ -100,6 +100,7 @@ A market order is accepted by the broker, then filled, canceled, or rejected. Af
 | Alpaca Markets API | Paper trade execution (simulated, no real money), market calendar, and stock-tagged news headlines |
 | Streamlit | Web dashboard for running analyses and viewing history |
 | SQLite | Local storage for crew runs, trades, and portfolio snapshots |
+| ChromaDB | Vector search over each company's latest 10-K and 10-Q from SEC EDGAR |
 | Python-dotenv | Secure API key management |
 
 ---
@@ -134,9 +135,12 @@ OPENAI_API_KEY=your_openai_key_here
 APCA_API_KEY_ID=your_alpaca_key_here
 APCA_API_SECRET_KEY=your_alpaca_secret_here
 APCA_API_BASE_URL=https://paper-api.alpaca.markets
+SEC_USER_AGENT=AIMA research tool your-name@example.com
 ```
 
 Your Alpaca API keys can be found in your Alpaca dashboard under API Keys. Use the paper trading keys, not live trading.
+
+`SEC_USER_AGENT` identifies the tool to SEC EDGAR, which requires automated requests to include a contact email; without it, the Advisor works without filings.
 
 ---
 
@@ -211,6 +215,19 @@ Register-ScheduledTask -TaskName "AIMA daily watchlist" -Action $action -Trigger
 
 `-StartWhenAvailable` runs a missed day as soon as the computer is back on; tickers that already ran that day are skipped, so nothing is counted twice. The task only runs while the computer is on. To stop it: `Unregister-ScheduledTask -TaskName "AIMA daily watchlist"`.
 
+### SEC Filings (ChromaDB)
+
+The Advisor's "Search SEC Filings" tool looks up passages in the company's latest 10-K and 10-Q, for example its risk factors and management's outlook, and cites the filing type and date. `src/first_ai_agents/filings.py` downloads each filing from SEC EDGAR, removes the hidden XBRL data, tags each passage with its section (such as "Item 1A. Risk Factors"), splits it into overlapping passages of about 1,500 characters, and stores them with OpenAI `text-embedding-3-small` embeddings in a local ChromaDB (`filings_db/`, not committed). When a newer filing appears, it replaces the older one of the same type.
+
+A ticker is indexed the first time the Advisor searches it. To index ahead of time (for example, the whole watchlist):
+
+```bash
+uv run index_filings            # every ticker in the watchlist
+uv run index_filings NVDA AMD   # just these
+```
+
+Indexing a full 10-K costs well under a cent in embeddings.
+
 ### Running the Tests
 
 The test suite runs against a temporary database and stand-ins for OpenAI and Alpaca, so it never places orders or touches `trading.db`:
@@ -257,6 +274,7 @@ first_ai_agents/
 │   ├── monitor.py             # Rule-based Risk Monitor
 │   ├── watchlist.py           # Daily runs over the watchlist (run_watchlist)
 │   ├── performance.py         # Scores past signals against market prices
+│   ├── filings.py             # SEC filings search with ChromaDB (index_filings)
 │   ├── signals.py             # Reads the Advisor's TRADE SIGNAL and SENTIMENT lines
 │   └── main.py                # Entry point with user input prompts
 ├── .streamlit/config.toml     # Dashboard theme (colors and fonts)
@@ -265,6 +283,7 @@ first_ai_agents/
 ├── tests/                     # pytest suite (no real API calls)
 ├── trade_report.md            # Auto-generated after each run
 ├── trading.db                 # SQLite database (created on first use, not committed)
+├── filings_db/                # ChromaDB index of SEC filings (created on first use, not committed)
 ├── pyproject.toml
 └── .env                       # API keys (not committed to repo)
 ```

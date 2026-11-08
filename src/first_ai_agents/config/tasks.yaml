@@ -9,22 +9,27 @@ analyze_investment_question:
        current price, 52-week range, P/E ratio, and recent price history.
     2. Call the "Get Stock News" tool with ticker "{ticker}" to retrieve recent
        headlines and assess market sentiment (bullish / bearish / neutral).
-    3. Cross-reference the price data with the news sentiment.
-    4. Generate a clear trade recommendation (Buy / Hold / Sell) with reasoning,
+    3. Call the "Search SEC Filings" tool for "{ticker}" at least twice: once for
+       the company's main risk factors, and once for its recent results and
+       outlook. Cite the filing type and date (for example "10-Q filed
+       2026-08-26") for anything you use from them.
+    4. Cross-reference the price data, the news sentiment, and the filings.
+    5. Generate a clear trade recommendation (Buy / Hold / Sell) with reasoning,
        written at the appropriate level for a {experience_level} investor.
-    5. Rate your confidence that the signal is right as a number from 0.00 to 1.00:
+    6. Rate your confidence that the signal is right as a number from 0.00 to 1.00:
        - 0.80 or higher: the price trend, valuation, and news sentiment all agree.
        - 0.50 to 0.79: the evidence is mixed but leans one way.
        - Below 0.50: the evidence is weak, thin, or contradictory.
        Judge the evidence honestly; this number decides whether a trade is allowed.
-    6. End your response with these two lines, exactly in this format:
+    7. End your response with these two lines, exactly in this format:
        SENTIMENT: [BULLISH/BEARISH/NEUTRAL]
        TRADE SIGNAL: [BUY/HOLD/SELL] {ticker} | Qty: 5 | Confidence: [0.00-1.00]
   expected_output: >
     A structured investment analysis containing:
     - Current price and key metrics from live data
     - Sentiment summary (bullish / bearish / neutral) with supporting headlines
-    - Key risk factors
+    - Key risk factors and recent results from the latest 10-K or 10-Q, with
+      the filing type and date
     - A clear recommendation (Buy / Hold / Sell) with reasoning written for
       a {experience_level} investor
     - A SENTIMENT line: SENTIMENT: BULLISH/BEARISH/NEUTRAL
