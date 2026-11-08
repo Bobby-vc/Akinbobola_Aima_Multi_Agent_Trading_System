@@ -41,14 +41,16 @@ def get_stock_data(ticker: str) -> str:
 
 @tool("Get Stock News")
 def get_stock_news(ticker: str) -> str:
-    """Fetches the most recent news headlines for a given stock ticker
-    using Yahoo Finance. Useful for sentiment analysis."""
-    stock = yf.Ticker(ticker)
-    news = stock.news[:5]
+    """Fetches the most recent news headlines tagged to a given stock ticker,
+    with their dates and sources. Useful for sentiment analysis."""
+    # Alpaca's news feed (from Benzinga and others) is tagged by stock; the
+    # yfinance news endpoint stopped working for the yfinance version that is
+    # compatible with alpaca-trade-api
+    news = get_alpaca_api().get_news(ticker.upper(), limit=8)
     if not news:
         return f"No recent news found for {ticker}."
-    headlines = "\n".join([f"- {n['content']['title']}" for n in news])
-    return f"Recent news for {ticker}:\n{headlines}"
+    headlines = "\n".join(f"- {str(n.created_at)[:10]} ({n.source}): {n.headline}" for n in news)
+    return f"Recent news for {ticker.upper()}, newest first:\n{headlines}"
 
 
 @tool("Execute Paper Trade")

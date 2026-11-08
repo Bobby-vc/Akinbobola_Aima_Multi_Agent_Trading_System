@@ -1,6 +1,7 @@
 advisor_agent:
   role: >
    Equity Research Analyst
+  llm: openai/gpt-4o
   goal: >
     Answer the user's investment question with a clear, evidence-based
     recommendation built from current valuation, price action, and news
@@ -20,6 +21,7 @@ advisor_agent:
 trader_agent:
   role: >
    Execution Trader
+  llm: openai/gpt-4o
   goal: >
     Act on the research desk's trade signals: execute a signal only when its
     confidence meets or exceeds the defined threshold, and report every
