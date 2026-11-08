@@ -158,6 +158,27 @@ def test_tool_falls_back_when_filings_are_unavailable(monkeypatch):
     assert "unavailable for NVDA" in result and "Continue without them" in result
 
 
+def test_parallel_tool_calls_share_one_index(monkeypatch):
+    import threading
+    import time
+    created = []
+
+    class SlowIndex:
+        def __init__(self):
+            time.sleep(0.05)  # widen the window in which a second thread could also create one
+            created.append(self)
+
+    monkeypatch.setattr(filings, "_index", None)
+    monkeypatch.setattr(filings, "FilingsIndex", SlowIndex)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(filings.get_index())) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(created) == 1 and all(r is created[0] for r in results)
+
+
 def test_filing_bytes_keep_their_encoding():
     html = '<html><head><meta charset="utf-8"></head><body><p>Management\u2019s Discussion \u2014 outlook</p></body></html>'
     text = filings.filing_text(html.encode("utf-8"))

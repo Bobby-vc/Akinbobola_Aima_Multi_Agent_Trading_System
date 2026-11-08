@@ -24,7 +24,9 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 7, 2026 | Project tailored to ITAI 3378 Finance in AI | `fcb3985` |
 | Nov 7, 2026 | First real runs: model and news fixes; new diagram | `8518fc2` |
 | Nov 7, 2026 | Daily schedule set up | `008cfc9` |
-| Nov 8, 2026 | SEC filings search with ChromaDB | (this change) |
+| Nov 8, 2026 | SEC filings search with ChromaDB | `52a484b` |
+| Nov 8, 2026 | Product plan for a subscription education tool | `c41ae0f` |
+| Nov 8, 2026 | Phase 1: cost per run, simulated portfolios, per-run state | (this change) |
 
 ---
 
@@ -243,6 +245,22 @@ At five tickers a day, the watchlist passes 20 runs on the fourth trading day; t
 
 ---
 
+## 18. Phase 1 of the product plan: cost per run, simulated portfolios, per-run state (November 8, 2026)
+
+The first three steps of Phase 1 in `docs/PRODUCT_PLAN.md`.
+
+**Cost per run:** each run now saves its model, prompt, cached, and completion tokens, the number of model calls, and an estimated cost, priced from `config/pricing.yaml` (`usage.py`). The Run History tab shows the cost of each run and the average. Real runs with `gpt-4o` and the filings search cost about $0.022 each (about 6,500 input and 650 output tokens).
+
+**Per-run state:** the Risk Monitor's record of the run in progress was a single global variable, so two runs at once would share it. This had already happened: on November 8 a TTWO question ran twice at overlapping times from the dashboard. Each crew now has its own `RunContext` (broker, threshold, and the Advisor's signal), and the Trader's tools are built for that context (`trading_tools`), so concurrent runs cannot see each other's signals or orders.
+
+**Simulated portfolios:** `broker.py` now chooses between the shared Alpaca account and simulated practice portfolios (`sim_broker.py`), which keep cash, positions, and orders in the database. Both answer the same calls, so the Risk Monitor works with either unchanged. Every run, trade, snapshot, and event is tagged with its account (older rows were assigned to Alpaca), the dashboard and watchlist show only the active account (`AIMA_ACCOUNT`), and the daily trade limit and order reconciliation apply per account.
+
+**Filings fix found in testing:** CrewAI runs an agent's tool calls in parallel threads, and two threads opening ChromaDB at once failed ("Could not connect to tenant"), so some filings searches returned nothing. The index is now opened once, behind a lock. The Advisor's output now requires a "From the SEC filings" section with citations, and its confidence rubric includes the filings.
+
+**Tests:** 19 new tests (138 in total), including two crews running at once with separate portfolios, an order flowing from the Trader's tool through the Risk Monitor into a simulated fill, simultaneous orders not spending the same cash, and parallel tool calls sharing one index.
+
+---
+
 ## How the changes were tested
 
 The checks below are now part of the test suite in `tests/` (see step 9).
@@ -260,7 +278,6 @@ The checks below are now part of the test suite in `tests/` (see step 9).
 - **Older runs show less detail.** Runs saved before November 4, 2026 have no start time, so their trades and monitor events cannot be matched to them, and their Trader and Monitor cards say "not recorded".
 - **Agent logs are not saved.** The dashboard keeps them only for runs made since the page was opened.
 - **Order size is fixed** at 5 shares in `tasks.yaml`; it does not scale with confidence.
-- **One run at a time.** The Advisor's signal for the run in progress is held in memory in `monitor.py`, so two runs started at the same moment (for example from two browser tabs) would share it.
 - **Position warnings repeat.** A position that stays over a limit is flagged again after every run.
 - **The daily trade limit uses UTC days,** not the market's trading day.
 - **The OneDrive copy** at `Documents\CrewAI 101\first_ai_agents` is a separate local folder that is not linked to this repository and has diverged from it.

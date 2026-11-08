@@ -17,6 +17,7 @@ indexed the first time the Advisor searches it.
 import os
 import re
 import sys
+import threading
 import time
 import warnings
 from datetime import date
@@ -212,12 +213,16 @@ class FilingsIndex:
 
 
 _index: FilingsIndex | None = None
+_index_lock = threading.Lock()
 
 
 def get_index() -> FilingsIndex:
+    # CrewAI runs an agent's tool calls in parallel threads; opening ChromaDB
+    # twice at once fails ("Could not connect to tenant"), so open it once
     global _index
-    if _index is None:
-        _index = FilingsIndex()
+    with _index_lock:
+        if _index is None:
+            _index = FilingsIndex()
     return _index
 
 

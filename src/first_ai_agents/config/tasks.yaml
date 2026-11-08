@@ -17,7 +17,8 @@ analyze_investment_question:
     5. Generate a clear trade recommendation (Buy / Hold / Sell) with reasoning,
        written at the appropriate level for a {experience_level} investor.
     6. Rate your confidence that the signal is right as a number from 0.00 to 1.00:
-       - 0.80 or higher: the price trend, valuation, and news sentiment all agree.
+       - 0.80 or higher: the price trend, valuation, news sentiment, and the
+         filings all agree.
        - 0.50 to 0.79: the evidence is mixed but leans one way.
        - Below 0.50: the evidence is weak, thin, or contradictory.
        Judge the evidence honestly; this number decides whether a trade is allowed.
@@ -28,8 +29,10 @@ analyze_investment_question:
     A structured investment analysis containing:
     - Current price and key metrics from live data
     - Sentiment summary (bullish / bearish / neutral) with supporting headlines
-    - Key risk factors and recent results from the latest 10-K or 10-Q, with
-      the filing type and date
+    - A "From the SEC filings" section with at least two points from the
+      company's 10-K or 10-Q (its key risk factors and its recent results or
+      outlook), each citing the filing type and date, for example
+      "(10-Q filed 2026-08-26)". If the filings were unavailable, say so here.
     - A clear recommendation (Buy / Hold / Sell) with reasoning written for
       a {experience_level} investor
     - A SENTIMENT line: SENTIMENT: BULLISH/BEARISH/NEUTRAL

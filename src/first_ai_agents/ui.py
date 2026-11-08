@@ -112,6 +112,11 @@ def fmt_money(value) -> str:
     return "—" if _missing(value) else f"${float(value):,.2f}"
 
 
+def fmt_cost(value) -> str:
+    """Run costs are cents, so they get more precision than other money."""
+    return "—" if _missing(value) else f"${float(value):,.3f}"
+
+
 def fmt_pct(value, signed: bool = True) -> str:
     """+1.23% (or 61% unsigned, for rates); a dash for missing values."""
     if _missing(value):
@@ -199,7 +204,11 @@ def sparkline_svg(values: list[float], width: int = 84, height: int = 22) -> str
             f'alt="5-day price trend">')
 
 
-def topbar_html(snapshots) -> str:
+def account_label(account: str) -> str:
+    return "PRACTICE PORTFOLIO" if account.startswith("sim:") else "PAPER TRADING"
+
+
+def topbar_html(snapshots, account: str = "alpaca") -> str:
     parts = ['<div class="aima-topbar">',
              '<div class="aima-brand">AIMA<small>Multi-Agent Trading System</small></div>']
     if not snapshots:
@@ -223,7 +232,7 @@ def topbar_html(snapshots) -> str:
         ):
             parts.append(f'<div class="aima-kpi"><span class="aima-label">{label}</span>'
                          f'<span class="aima-value">{body}</span></div>')
-    parts.append('<span class="aima-paper">PAPER TRADING</span></div>')
+    parts.append(f'<span class="aima-paper">{account_label(account)}</span></div>')
     return "".join(parts)
 
 

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from first_ai_agents.broker import get_alpaca_api
+from first_ai_agents.broker import active_account, get_alpaca_api
 from first_ai_agents.database import get_crew_runs, get_trades_between, utc_now
 from first_ai_agents.monitor import DEFAULT_CONFIDENCE_THRESHOLD
 from first_ai_agents.performance import MARKET_TZ
@@ -54,8 +54,9 @@ def start_of_market_day(day) -> str:
     return midnight.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
 
 
-def tickers_already_run(since: str) -> set[str]:
-    return {(r["ticker"] or "").upper() for r in get_crew_runs(limit=5000) if r["run_at"] >= since}
+def tickers_already_run(since: str, account: str) -> set[str]:
+    return {(r["ticker"] or "").upper() for r in get_crew_runs(limit=5000, account=account)
+            if r["run_at"] >= since}
 
 
 def describe_run(run, trades) -> str:
@@ -97,7 +98,8 @@ def run_watchlist(tickers: list[str] | None = None, force: bool = False, api=Non
         from first_ai_agents.crew import FirstAiAgents
         crew_factory = lambda: FirstAiAgents().crew()
 
-    done_today = tickers_already_run(start_of_market_day(today))
+    account = active_account()
+    done_today = tickers_already_run(start_of_market_day(today), account)
     LOG_DIR.mkdir(exist_ok=True)
     log_path = LOG_DIR / f"watchlist-{today}.log"
     results = {}
@@ -117,12 +119,13 @@ def run_watchlist(tickers: list[str] | None = None, force: bool = False, api=Non
             with open(log_path, "a", encoding="utf-8") as log, contextlib.redirect_stdout(log):
                 print(f"\n===== {ticker} at {started} UTC =====")
                 crew_factory().kickoff(inputs=inputs)
-            latest = get_crew_runs(limit=1)
+            latest = get_crew_runs(limit=1, account=account)
             if not latest or latest[0]["run_at"] < started:
                 results[ticker] = "error: the run finished but was not saved"
             else:
                 run = latest[0]
-                results[ticker] = describe_run(run, get_trades_between(run["started_at"] or started, run["run_at"]))
+                trades = get_trades_between(run["started_at"] or started, run["run_at"], account)
+                results[ticker] = describe_run(run, trades)
         except Exception as e:
             results[ticker] = f"error: {e}"
         print(f"{ticker:6} {results[ticker]}")

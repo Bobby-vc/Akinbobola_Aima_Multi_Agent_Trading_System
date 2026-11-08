@@ -2,8 +2,8 @@ import yfinance as yf
 from crewai.tools import tool
 
 from first_ai_agents.broker import get_alpaca_api, record_portfolio_snapshot
-from first_ai_agents.database import cache_stock_data, get_cached_stock, log_trade
-from first_ai_agents.monitor import check_order
+from first_ai_agents.database import DEFAULT_ACCOUNT, cache_stock_data, get_cached_stock, log_trade
+from first_ai_agents.monitor import RunContext, check_order
 
 
 @tool("Get Stock Price Data")
@@ -53,65 +53,67 @@ def get_stock_news(ticker: str) -> str:
     return f"Recent news for {ticker.upper()}, newest first:\n{headlines}"
 
 
-@tool("Execute Paper Trade")
-def execute_paper_trade(ticker: str, qty: int, side: str) -> str:
-    """Executes a paper trade on Alpaca Markets.
-    ticker: stock symbol (e.g. 'AAPL')
-    qty: number of shares to trade
-    side: must be 'buy' or 'sell'
-    All trades go to the paper trading sandbox — no real money involved.
-    Every order is checked by the risk monitor first and may be blocked."""
-    api = get_alpaca_api()
-    try:
-        allowed, reason = check_order(api, ticker, qty, side)
-        if not allowed:
-            log_trade(ticker, qty, side, None, "blocked")
+def trading_tools(run: RunContext) -> list:
+    """The Trader's tools for one run, bound to that run's broker and state, so
+    runs happening at the same time cannot see each other's orders or signals."""
+    broker = run.broker
+    account = getattr(broker, "account_id", DEFAULT_ACCOUNT)
+
+    @tool("Execute Paper Trade")
+    def execute_paper_trade(ticker: str, qty: int, side: str) -> str:
+        """Places a practice (paper) market order. No real money is involved.
+        ticker: stock symbol (e.g. 'AAPL')
+        qty: number of shares to trade
+        side: must be 'buy' or 'sell'
+        Every order is checked by the risk monitor first and may be blocked."""
+        try:
+            allowed, reason = check_order(broker, ticker, qty, side, run)
+            if not allowed:
+                log_trade(ticker, qty, side, None, "blocked", account=account)
+                return (
+                    f"Order BLOCKED by the risk monitor: {reason}\n"
+                    f"Do not retry or resize this order. Report it as BLOCKED with this reason."
+                )
+            order = broker.submit_order(symbol=ticker, qty=qty, side=side, type="market", time_in_force="gtc")
+            filled_price = getattr(order, "filled_avg_price", None)
+            log_trade(ticker, qty, side, order.id, order.status, account=account,
+                      filled_avg_price=float(filled_price) if filled_price else None)
             return (
-                f"Order BLOCKED by the risk monitor: {reason}\n"
-                f"Do not retry or resize this order. Report it as BLOCKED with this reason."
+                f"Order submitted successfully!\n"
+                f"Action: {side.upper()} {qty} shares of {ticker}\n"
+                f"Order ID: {order.id}\n"
+                f"Status: {order.status}\n"
+                f"Disclaimer: This is a simulated paper trade. Not real financial advice."
             )
-        order = api.submit_order(
-            symbol=ticker,
-            qty=qty,
-            side=side,
-            type='market',
-            time_in_force='gtc'
-        )
-        log_trade(ticker, qty, side, order.id, order.status)
-        return (
-            f"Order submitted successfully!\n"
-            f"Action: {side.upper()} {qty} shares of {ticker}\n"
-            f"Order ID: {order.id}\n"
-            f"Status: {order.status}\n"
-            f"Disclaimer: This is a simulated paper trade. Not real financial advice."
-        )
-    except Exception as e:
-        log_trade(ticker, qty, side, None, "failed")
-        return f"Trade execution failed: {str(e)}"
+        except Exception as e:
+            log_trade(ticker, qty, side, None, "failed", account=account)
+            return f"Trade execution failed: {str(e)}"
 
+    @tool("Check Portfolio")
+    def get_portfolio() -> str:
+        """Returns the current practice portfolio: cash balance, total portfolio
+        value, and open positions."""
+        try:
+            account_info, positions = record_portfolio_snapshot(broker)
+            if positions:
+                pos_str = "\n".join([
+                    f"  {p.symbol}: {p.qty} shares @ avg ${p.avg_entry_price} "
+                    f"(current: ${p.current_price}, P&L: ${p.unrealized_pl})"
+                    for p in positions
+                ])
+            else:
+                pos_str = "  No open positions."
+            return (
+                f"Cash Available: ${account_info.cash}\n"
+                f"Portfolio Value: ${account_info.portfolio_value}\n"
+                f"Buying Power: ${account_info.buying_power}\n"
+                f"Open Positions:\n{pos_str}"
+            )
+        except Exception as e:
+            return f"Failed to retrieve portfolio: {str(e)}"
 
-@tool("Check Portfolio")
-def get_portfolio() -> str:
-    """Returns the current paper trading portfolio from Alpaca,
-    including cash balance, total portfolio value, and open positions."""
-    try:
-        account, positions = record_portfolio_snapshot(get_alpaca_api())
-        if positions:
-            pos_str = "\n".join([
-                f"  {p.symbol}: {p.qty} shares @ avg ${p.avg_entry_price} "
-                f"(current: ${p.current_price}, P&L: ${p.unrealized_pl})"
-                for p in positions
-            ])
-        else:
-            pos_str = "  No open positions."
-        return (
-            f"Cash Available: ${account.cash}\n"
-            f"Portfolio Value: ${account.portfolio_value}\n"
-            f"Buying Power: ${account.buying_power}\n"
-            f"Open Positions:\n{pos_str}"
-        )
-    except Exception as e:
-        return f"Failed to retrieve portfolio: {str(e)}"
+    return [execute_paper_trade, get_portfolio]
+
 
 @tool("Search SEC Filings")
 def search_sec_filings(ticker: str, query: str) -> str:

@@ -23,6 +23,9 @@ Beginners ask about a stock, watch three AI desks (research, execution, and risk
 ## What a paid product needs
 
 ### Phase 1: Multi-user foundation
+
+Status (November 8, 2026): cost tracking, simulated portfolios, and per-run state are done; sign-in and per-user data are next.
+
 - **Sign-in:** Streamlit's built-in `st.login` with Google sign-in (needs the `Authlib` package and an OAuth client).
 - **Per-user data:** a `user_id` on runs, trades, snapshots, and events, and every query filtered by it.
 - **Simulated portfolios:** each user starts with virtual cash (for example $100,000). Orders fill at the current market price, and positions and cash live in the database. A broker interface lets the Risk Monitor and Trader work with either the simulated broker (subscribers) or Alpaca (AIMA's own track record).

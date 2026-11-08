@@ -2,31 +2,46 @@ from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, after_kickoff, before_kickoff, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from first_ai_agents.tools.custom_tool import (
-    execute_paper_trade, get_portfolio, get_stock_data, get_stock_news, search_sec_filings,
+    get_stock_data, get_stock_news, search_sec_filings, trading_tools,
 )
-from first_ai_agents.broker import get_alpaca_api
-from first_ai_agents.database import log_crew_run, utc_now
-from first_ai_agents.monitor import (
-    DEFAULT_CONFIDENCE_THRESHOLD, end_run, record_signal, run_checks, start_run,
-)
+from first_ai_agents.broker import get_broker
+from first_ai_agents.database import DEFAULT_ACCOUNT, log_crew_run, utc_now
+from first_ai_agents.monitor import DEFAULT_CONFIDENCE_THRESHOLD, RunContext, run_checks
 from first_ai_agents.signals import parse_signal
+from first_ai_agents.usage import summarize_usage
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
 # https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
 
 @CrewBase
 class FirstAiAgents():
-    """FirstAiAgents crew"""
+    """FirstAiAgents crew.
+
+    Each instance runs once, with its own RunContext. Pass `broker` to send
+    orders somewhere other than the account chosen by AIMA_ACCOUNT, e.g. a
+    learner's simulated portfolio: FirstAiAgents(broker=SimulatedBroker(...))."""
 
     agents: list[BaseAgent]
     tasks: list[Task]
 
+    def __init__(self, broker=None):
+        # Set before CrewBase builds the agents, which reads self.run
+        self.broker = broker
+        self._run = None
+
     # Learn more about YAML configuration files here:
     # Agents: https://docs.crewai.com/concepts/agents#yaml-configuration-recommended
     # Tasks: https://docs.crewai.com/concepts/tasks#yaml-configuration-recommended
-    
+
     # If you would like to add tools to your agents, you can learn more about it here:
     # https://docs.crewai.com/concepts/agents#agent-tools
+
+    @property
+    def run(self) -> RunContext:
+        """This run's broker, threshold, and Advisor signal."""
+        if getattr(self, "_run", None) is None:
+            self._run = RunContext(broker=getattr(self, "broker", None) or get_broker())
+        return self._run
 
     @agent
     def advisor_agent(self) -> Agent:
@@ -40,7 +55,7 @@ class FirstAiAgents():
     def trader_agent(self) -> Agent:
         return Agent(
             config=self.agents_config['trader_agent'], # type: ignore[index]
-            tools=[execute_paper_trade, get_portfolio],
+            tools=trading_tools(self.run),
             verbose=True
         )
 
@@ -56,7 +71,7 @@ class FirstAiAgents():
 
     def record_advisor_signal(self, output):
         # Orders are checked against the Advisor's own output, not the Trader's reading of it
-        record_signal(parse_signal(output.raw))
+        self.run.signal = parse_signal(output.raw)
 
     @task
     def evaluate_trade_signal(self) -> Task:
@@ -83,7 +98,7 @@ class FirstAiAgents():
     def capture_inputs(self, inputs):
         inputs = dict(inputs or {})
         threshold = float(inputs.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD))
-        start_run(threshold)  # raises if the threshold is outside 0 to 1
+        self.run.set_threshold(threshold)  # raises if the threshold is outside 0 to 1
         inputs["confidence_threshold"] = threshold
         self.run_inputs = inputs
         self.run_started_at = utc_now().isoformat()
@@ -93,10 +108,10 @@ class FirstAiAgents():
     def finish_run(self, result):
         # One hook so the monitor's checks are always recorded inside the run's
         # time window. Neither step may break a run, so failures are printed.
-        end_run()
+        broker = self.run.broker
         try:
             # The risk monitor is rule-based, not an LLM agent, so it runs as a hook
-            for finding in run_checks(get_alpaca_api()):
+            for finding in run_checks(broker):
                 print(f"[Risk monitor] {finding}")
         except Exception as e:
             print(f"Risk monitor checks failed: {e}")
@@ -104,6 +119,7 @@ class FirstAiAgents():
         try:
             inputs = getattr(self, "run_inputs", {})
             tasks_output = result.tasks_output or []
+            model = self.agents_config["advisor_agent"].get("llm")  # type: ignore[index]
             log_crew_run(
                 question=inputs.get("question", ""),
                 ticker=inputs.get("ticker", ""),
@@ -113,6 +129,8 @@ class FirstAiAgents():
                 trade_signal=tasks_output[1].raw if len(tasks_output) > 1 else "",
                 raw_output=result.raw,
                 started_at=getattr(self, "run_started_at", None),
+                account=getattr(broker, "account_id", DEFAULT_ACCOUNT),
+                usage=summarize_usage(getattr(result, "token_usage", None), model),
             )
         except Exception as e:
             print(f"Could not log crew run to database: {e}")

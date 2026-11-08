@@ -136,6 +136,8 @@ APCA_API_KEY_ID=your_alpaca_key_here
 APCA_API_SECRET_KEY=your_alpaca_secret_here
 APCA_API_BASE_URL=https://paper-api.alpaca.markets
 SEC_USER_AGENT=AIMA research tool your-name@example.com
+# Optional: use a simulated practice portfolio instead of the Alpaca account
+# AIMA_ACCOUNT=sim:your-name
 ```
 
 Your Alpaca API keys can be found in your Alpaca dashboard under API Keys. Use the paper trading keys, not live trading.
@@ -188,6 +190,19 @@ The Performance tab scores every past signal against what the market actually di
 - **Uncertainty:** hit rates come with a 95% Wilson confidence interval, and the tab warns when fewer than 20 signals have been scored.
 
 It also shows a calibration chart (do 0.8-confidence signals hit more often than 0.6 ones?) and compares the hit rate of signals that cleared the confidence threshold with those it filtered out.
+
+### Accounts: Alpaca or a Simulated Portfolio
+
+Orders go to one of two kinds of account, chosen by `AIMA_ACCOUNT` in `.env`:
+
+- `alpaca` (the default): the shared Alpaca paper trading account, which builds AIMA's own track record.
+- `sim:<name>`, for example `sim:aima`: a simulated practice portfolio kept in the database. It starts with $100,000 of virtual cash, fills market orders immediately at the latest trade price, and rejects buys it cannot afford and sales of shares it does not hold. This is the basis for per-learner portfolios.
+
+Every run, trade, snapshot, and Risk Monitor event is saved with its account, and the dashboard and watchlist only show and count the active account's records. The daily trade limit also applies per account. Each run has its own state (broker, threshold, and the Advisor's signal), so several runs can happen at once without affecting each other.
+
+### Cost per Run
+
+Each run saves its model, token counts, and an estimated cost in US dollars, priced from `src/first_ai_agents/config/pricing.yaml` (update it if OpenAI's prices change). The Run History tab shows each run's cost and the average. With `gpt-4o`, a typical run has cost about $0.02.
 
 ### Daily Watchlist Runs
 
@@ -244,11 +259,12 @@ Run history is stored in a local SQLite file, `trading.db`, in the project root.
 
 | Table | Contents |
 |-------|----------|
-| `crew_runs` | Each run's question, ticker, experience level, Advisor analysis, and trade signal |
+| `crew_runs` | Each run's question, ticker, experience level, Advisor analysis, trade signal, account, token usage, and estimated cost |
 | `trade_history` | Each paper trade: ticker, quantity, side, Alpaca order ID, status, and fill price (blocked orders included) |
 | `portfolio_snapshots` | Cash, portfolio value, buying power, and open positions at a point in time |
 | `stock_cache` | Recent yfinance price data per ticker (treated as stale after 15 minutes) |
 | `monitor_events` | Every Risk Monitor block, order status change, position alert, and completed check |
+| `sim_accounts`, `sim_positions`, `sim_orders` | Simulated practice portfolios: cash, holdings, and orders |
 
 To browse the data directly, open `trading.db` with [DB Browser for SQLite](https://sqlitebrowser.org) or the `sqlite3` command-line tool.
 
@@ -263,12 +279,15 @@ first_ai_agents/
 │   │   ├── agents.yaml        # Agent roles, goals, and backstories
 │   │   ├── tasks.yaml         # Task descriptions and agent assignments
 │   │   ├── risk_limits.yaml   # Hard limits enforced by the Risk Monitor
+│   │   ├── pricing.yaml       # OpenAI prices used to estimate run costs
 │   │   └── watchlist.yaml     # Tickers and settings for daily runs
 │   ├── tools/
 │   │   └── custom_tool.py     # yfinance and Alpaca tool definitions
 │   ├── app.py                 # Streamlit web dashboard (layout)
 │   ├── ui.py                  # Dashboard components and theme CSS
-│   ├── broker.py              # Shared Alpaca client and portfolio snapshots
+│   ├── broker.py              # Picks the account (Alpaca or simulated); portfolio snapshots
+│   ├── sim_broker.py          # Simulated practice portfolios
+│   ├── usage.py               # Token usage and estimated cost per run
 │   ├── crew.py                # Crew assembly and agent/task wiring
 │   ├── database.py            # SQLite schema and read/write helpers
 │   ├── monitor.py             # Rule-based Risk Monitor

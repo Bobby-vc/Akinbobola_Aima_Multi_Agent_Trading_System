@@ -1,18 +1,20 @@
 """Rule-based risk monitor.
 
 Unlike the Advisor and Trader, the monitor uses no LLM. It applies the fixed
-rules in config/risk_limits.yaml to block unsafe orders before they reach
-Alpaca, blocks orders that do not match the Advisor's signal or fall below
+rules in config/risk_limits.yaml to block unsafe orders before they reach the
+broker, blocks orders that do not match the Advisor's signal or fall below
 the run's confidence threshold, and after each run checks on submitted
-orders and open positions.
+orders and open positions. Limits such as the daily trade count apply per
+account.
 """
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
 from first_ai_agents.broker import record_portfolio_snapshot
 from first_ai_agents.database import (
-    count_trades_today, get_unsettled_trades, log_monitor_event, update_trade_status,
+    DEFAULT_ACCOUNT, count_trades_today, get_unsettled_trades, log_monitor_event, update_trade_status,
 )
 
 LIMITS_PATH = Path(__file__).parent / "config" / "risk_limits.yaml"
@@ -25,6 +27,8 @@ DEFAULT_LIMITS = {
     "position_loss_alert_pct": 0.10,
 }
 
+DEFAULT_CONFIDENCE_THRESHOLD = 0.7
+
 
 def load_limits() -> dict:
     limits = dict(DEFAULT_LIMITS)
@@ -34,37 +38,32 @@ def load_limits() -> dict:
     return limits
 
 
-# --- the run in progress ---
-# The crew records the Advisor's parsed signal here when the Advisor finishes,
-# so orders are checked against what the Advisor actually said rather than
-# what the Trader reports. This assumes one crew run at a time.
+@dataclass
+class RunContext:
+    """One crew run's state: which broker its orders go to, its confidence
+    threshold, and the Advisor's parsed signal, recorded when the Advisor
+    finishes so orders are checked against what the Advisor actually said
+    rather than what the Trader reports. Each run has its own, so several
+    runs can happen at once."""
+    broker: object = None
+    threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
+    signal: dict | None = None
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.7
-_active_run: dict | None = None
-
-
-def start_run(confidence_threshold: float):
-    global _active_run
-    if not 0 <= confidence_threshold <= 1:
-        raise ValueError(f"confidence_threshold must be between 0 and 1, got {confidence_threshold}.")
-    _active_run = {"threshold": confidence_threshold, "signal": None}
-
-
-def record_signal(signal: dict | None):
-    if _active_run is not None:
-        _active_run["signal"] = signal
+    def set_threshold(self, threshold: float):
+        if not 0 <= threshold <= 1:
+            raise ValueError(f"confidence_threshold must be between 0 and 1, got {threshold}.")
+        self.threshold = threshold
 
 
-def end_run():
-    global _active_run
-    _active_run = None
+def _account(broker) -> str:
+    return getattr(broker, "account_id", DEFAULT_ACCOUNT)
 
 
-def _signal_violation(ticker: str, side: str) -> str | None:
+def _signal_violation(run: RunContext | None, ticker: str, side: str) -> str | None:
     """Checks an order against the Advisor's signal and the run's confidence threshold."""
-    if _active_run is None:
+    if run is None:
         return None  # not inside a crew run, e.g. a manual tool call
-    signal, threshold = _active_run["signal"], _active_run["threshold"]
+    signal, threshold = run.signal, run.threshold
     if not signal:
         return "No TRADE SIGNAL was found in the Advisor's analysis."
     if signal["action"] == "HOLD":
@@ -83,17 +82,17 @@ def _signal_violation(ticker: str, side: str) -> str | None:
 
 # --- before an order ---
 
-def check_order(api, ticker: str, qty: int, side: str) -> tuple[bool, str]:
+def check_order(broker, ticker: str, qty: int, side: str, run: RunContext | None = None) -> tuple[bool, str]:
     """Returns (allowed, reason). Blocked orders are logged as monitor events."""
     ticker = ticker.upper()
-    reason = _order_violation(api, ticker, qty, side, load_limits())
+    reason = _order_violation(broker, ticker, qty, side, load_limits(), run)
     if reason:
-        log_monitor_event("block", "order", reason, ticker)
+        log_monitor_event("block", "order", reason, ticker, account=_account(broker))
         return False, reason
     return True, "Order passed all risk checks."
 
 
-def _order_violation(api, ticker: str, qty: int, side: str, limits: dict) -> str | None:
+def _order_violation(broker, ticker: str, qty: int, side: str, limits: dict, run: RunContext | None) -> str | None:
     if side not in ("buy", "sell"):
         return f"Side must be 'buy' or 'sell', got '{side}'."
     if qty <= 0:
@@ -101,16 +100,16 @@ def _order_violation(api, ticker: str, qty: int, side: str, limits: dict) -> str
     if qty > limits["max_qty_per_order"]:
         return f"{qty} shares exceeds the per-order limit of {limits['max_qty_per_order']}."
 
-    signal_problem = _signal_violation(ticker, side)
+    signal_problem = _signal_violation(run, ticker, side)
     if signal_problem:
         return signal_problem
 
-    trades_today = count_trades_today()
+    trades_today = count_trades_today(_account(broker))
     if trades_today >= limits["max_trades_per_day"]:
         return f"Daily trade limit reached ({trades_today} of {limits['max_trades_per_day']})."
 
-    account = api.get_account()
-    position = next((p for p in api.list_positions() if p.symbol == ticker), None)
+    account = broker.get_account()
+    position = next((p for p in broker.list_positions() if p.symbol == ticker), None)
     held_qty = float(position.qty) if position else 0.0
 
     if side == "sell":
@@ -119,7 +118,7 @@ def _order_violation(api, ticker: str, qty: int, side: str, limits: dict) -> str
                     f"and short selling is not allowed.")
         return None
 
-    price = float(api.get_latest_trade(ticker).price)
+    price = float(broker.get_latest_trade(ticker).price)
     order_value = price * qty
 
     max_order_value = float(account.cash) * limits["max_order_pct_of_cash"]
@@ -138,18 +137,19 @@ def _order_violation(api, ticker: str, qty: int, side: str, limits: dict) -> str
 
 # --- after a run ---
 
-def run_checks(api) -> list[str]:
-    """Updates submitted orders from Alpaca, saves a portfolio snapshot, and
-    flags risky positions. Returns one line per finding."""
+def run_checks(broker) -> list[str]:
+    """Updates this account's submitted orders from the broker, saves a portfolio
+    snapshot, and flags risky positions. Returns one line per finding."""
     limits = load_limits()
+    account_id = _account(broker)
     findings = []
 
-    for trade in get_unsettled_trades():
+    for trade in get_unsettled_trades(account_id):
         try:
-            order = api.get_order(trade["order_id"])
+            order = broker.get_order(trade["order_id"])
         except Exception as e:
             message = f"Could not look up order {trade['order_id']}: {e}"
-            log_monitor_event("warning", "order", message, trade["ticker"])
+            log_monitor_event("warning", "order", message, trade["ticker"], account=account_id)
             findings.append(message)
             continue
         if order.status == trade["status"]:
@@ -158,23 +158,23 @@ def run_checks(api) -> list[str]:
         update_trade_status(trade["order_id"], order.status, filled_price)
         message = f"{trade['side'].upper()} {trade['qty']} {trade['ticker']} is now {order.status}."
         level = "warning" if order.status in ("canceled", "expired", "rejected") else "info"
-        log_monitor_event(level, "order", message, trade["ticker"])
+        log_monitor_event(level, "order", message, trade["ticker"], account=account_id)
         findings.append(message)
 
-    account, positions = record_portfolio_snapshot(api)
+    account, positions = record_portfolio_snapshot(broker)
     portfolio_value = float(account.portfolio_value)
     for p in positions:
         change = float(p.unrealized_plpc)
         if change <= -limits["position_loss_alert_pct"]:
             message = f"{p.symbol} is down {abs(change):.1%} from its average entry price."
-            log_monitor_event("warning", "position", message, p.symbol)
+            log_monitor_event("warning", "position", message, p.symbol, account=account_id)
             findings.append(message)
         weight = abs(float(p.market_value)) / portfolio_value if portfolio_value else 0.0
         if weight > limits["max_position_pct_of_portfolio"]:
             message = (f"{p.symbol} is {weight:.1%} of the portfolio, over the "
                        f"{limits['max_position_pct_of_portfolio']:.0%} limit.")
-            log_monitor_event("warning", "position", message, p.symbol)
+            log_monitor_event("warning", "position", message, p.symbol, account=account_id)
             findings.append(message)
 
-    log_monitor_event("info", "check", f"Checks complete: {len(findings)} finding(s).")
+    log_monitor_event("info", "check", f"Checks complete: {len(findings)} finding(s).", account=account_id)
     return findings

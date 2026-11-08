@@ -74,6 +74,10 @@ def test_old_databases_gain_new_columns(tmp_path, monkeypatch):
     assert db.get_trades()[0]["order_id"] == "old-1"
     assert db.get_trades()[0]["filled_avg_price"] is None
     assert db.get_crew_runs()[0]["started_at"] is None
+    # Rows from before accounts existed belong to the Alpaca account
+    assert db.get_trades(account="alpaca")[0]["order_id"] == "old-1"
+    assert db.get_crew_runs(account="alpaca")[0]["ticker"] == "MSFT"
+    assert db.get_crew_runs()[0]["cost_usd"] is None
 
 
 def test_timestamps_keep_the_stored_format(temp_db):
