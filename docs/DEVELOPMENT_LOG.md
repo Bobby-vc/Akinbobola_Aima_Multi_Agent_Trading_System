@@ -22,7 +22,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 5, 2026 | Signal Performance tab | `a2e7190` |
 | Nov 7, 2026 | Daily watchlist runs | `e96e21c` |
 | Nov 7, 2026 | Project tailored to ITAI 3378 Finance in AI | `fcb3985` |
-| Nov 7, 2026 | First real runs: model and news fixes; new diagram | (this change) |
+| Nov 7, 2026 | First real runs: model and news fixes; new diagram | `8518fc2` |
+| Nov 7, 2026 | Daily schedule set up | (this change) |
 
 ---
 
@@ -215,6 +216,16 @@ Earlier entries in this log are kept as they happened.
 - Tests: 2 new tests for the news tool (107 in total).
 
 **Result:** the first real run was saved end to end: NVDA, HOLD at 0.55 confidence, so no order was placed, and the Risk Monitor's post-run checks flagged four positions down more than 10%.
+
+---
+
+## 16. Daily schedule (November 7, 2026)
+
+- `scripts/run_watchlist.bat` (new): runs `uv run run_watchlist` from the project folder, finds `uv` even when Task Scheduler's PATH lacks it, and appends the one-line results to `logs/scheduler.log`.
+- On Akinbobola's computer, a Windows Task Scheduler task, "AIMA daily watchlist", runs it Monday to Friday at 9:45 a.m. Central (10:45 a.m. Eastern, during market hours, so paper orders fill right away). Missed runs start when the computer is next on. The first scheduled run is Monday, November 9, 2026. The README shows how to register the same task on another computer.
+- Tested by starting the task by hand on a Saturday: it ran the whole chain and correctly stopped because the market was closed.
+
+At five tickers a day, the watchlist passes 20 runs on the fourth trading day; their 5-day scores follow a week later.
 
 ---
 

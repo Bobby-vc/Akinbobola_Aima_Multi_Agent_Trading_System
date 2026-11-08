@@ -200,6 +200,17 @@ The tickers, experience level, confidence threshold, and question are set in `sr
 
 Each run uses OpenAI credit, and signals that clear the threshold place paper orders.
 
+**Running it on a schedule (Windows).** `scripts/run_watchlist.bat` runs the command from the project folder and appends each day's one-line summaries to `logs/scheduler.log`. To run it every weekday at 9:45 a.m. (an hour after the market opens in Central time), register it in Task Scheduler from PowerShell:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "C:\path	o\project\scriptsun_watchlist.bat"
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At 9:45am
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+Register-ScheduledTask -TaskName "AIMA daily watchlist" -Action $action -Trigger $trigger -Settings $settings
+```
+
+`-StartWhenAvailable` runs a missed day as soon as the computer is back on; tickers that already ran that day are skipped, so nothing is counted twice. The task only runs while the computer is on. To stop it: `Unregister-ScheduledTask -TaskName "AIMA daily watchlist"`.
+
 ### Running the Tests
 
 The test suite runs against a temporary database and stand-ins for OpenAI and Alpaca, so it never places orders or touches `trading.db`:
@@ -250,6 +261,7 @@ first_ai_agents/
 │   └── main.py                # Entry point with user input prompts
 ├── .streamlit/config.toml     # Dashboard theme (colors and fonts)
 ├── docs/DEVELOPMENT_LOG.md    # History of changes since the submission
+├── scripts/run_watchlist.bat  # Launcher for the scheduled daily run
 ├── tests/                     # pytest suite (no real API calls)
 ├── trade_report.md            # Auto-generated after each run
 ├── trading.db                 # SQLite database (created on first use, not committed)
