@@ -18,14 +18,18 @@ import os
 import re
 import sys
 import time
+import warnings
 from datetime import date
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Filings are XHTML with embedded XBRL; the HTML parser reads them correctly
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 FORMS = ("10-K", "10-Q")
 CHUNK_CHARS = 1500
@@ -97,8 +101,11 @@ def latest_filings(ticker: str) -> list[dict]:
 
 # --- text processing ---
 
-def filing_text(html: str) -> str:
-    """Readable text from a filing's HTML, without hidden XBRL data."""
+def filing_text(html: bytes | str) -> str:
+    """Readable text from a filing's HTML, without hidden XBRL data.
+
+    Pass the raw bytes when possible, so the filing's own character encoding is
+    used (decoding as Latin-1 turns curly quotes into replacement characters)."""
     soup = BeautifulSoup(html, "lxml")
     for tag in soup.find_all(["script", "style", "ix:header"]):
         tag.decompose()
@@ -141,6 +148,10 @@ def chunk(text: str, size: int = CHUNK_CHARS, overlap: int = CHUNK_OVERLAP) -> l
         if end >= len(text):
             break
         start = max(end - overlap, start + 1)
+        # Begin the next passage at a word boundary rather than mid-word
+        boundary = re.search(r"\s", text[start:start + 60])
+        if boundary:
+            start += boundary.end()
     return chunks
 
 
@@ -161,7 +172,7 @@ class FilingsIndex:
             metadata={"hnsw:space": "cosine"},
         )
         self.fetch_filings = fetch_filings or latest_filings
-        self.fetch_html = fetch_html or (lambda url: sec_get(url).text)
+        self.fetch_html = fetch_html or (lambda url: sec_get(url).content)
         self._checked: dict[str, date] = {}
 
     def is_indexed(self, accession: str) -> bool:

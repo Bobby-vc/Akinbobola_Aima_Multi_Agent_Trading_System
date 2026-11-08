@@ -156,3 +156,16 @@ def test_tool_falls_back_when_filings_are_unavailable(monkeypatch):
     monkeypatch.setattr(filings, "_index", Broken())
     result = tools.search_sec_filings.run(ticker="nvda", query="risks")
     assert "unavailable for NVDA" in result and "Continue without them" in result
+
+
+def test_filing_bytes_keep_their_encoding():
+    html = '<html><head><meta charset="utf-8"></head><body><p>Management\u2019s Discussion \u2014 outlook</p></body></html>'
+    text = filings.filing_text(html.encode("utf-8"))
+    assert "Management\u2019s Discussion \u2014 outlook" in text and "\ufffd" not in text
+
+
+def test_chunks_start_at_word_boundaries():
+    text = " ".join(f"word{i}" for i in range(600))
+    pieces = filings.chunk(text, size=500, overlap=100)
+    assert all(p.split()[0].startswith("word") and p.split()[0][4:].isdigit() for p in pieces)
+    assert all(text.find(p) == 0 or text[text.find(p) - 1] == " " for p in pieces)
