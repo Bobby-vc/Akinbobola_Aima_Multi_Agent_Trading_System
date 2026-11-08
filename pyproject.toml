@@ -18,6 +18,7 @@ train = "first_ai_agents.main:train"
 replay = "first_ai_agents.main:replay"
 test = "first_ai_agents.main:test"
 run_with_trigger = "first_ai_agents.main:run_with_trigger"
+run_watchlist = "first_ai_agents.watchlist:main"
 
 [build-system]
 requires = ["hatchling"]

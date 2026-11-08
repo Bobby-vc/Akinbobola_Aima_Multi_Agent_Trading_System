@@ -190,6 +190,21 @@ The Performance tab scores every past signal against what the market actually di
 
 It also shows a calibration chart (do 0.8-confidence signals hit more often than 0.6 ones?) and compares the hit rate of signals that cleared the confidence threshold with those it filtered out.
 
+### Daily Watchlist Runs
+
+To build a track record for the Performance tab, run the agents over a watchlist once per trading day:
+
+```bash
+uv run run_watchlist
+```
+
+The tickers, experience level, confidence threshold, and question are set in `src/first_ai_agents/config/watchlist.yaml`. Each ticker runs in turn, exactly as from the dashboard, so every run is saved, checked by the Risk Monitor, and later scored. Days the market is closed are skipped (using Alpaca's calendar, so holidays count), as are tickers that already ran today. The console shows one line per ticker; the agents' full output goes to `logs/watchlist-<date>.log`.
+
+- `uv run run_watchlist --tickers NVDA AMD` runs only those tickers
+- `uv run run_watchlist --force` runs even when the market is closed
+
+Each run uses OpenAI credit, and signals that clear the threshold place paper orders.
+
 ### Running the Tests
 
 The test suite runs against a temporary database and stand-ins for OpenAI and Alpaca, so it never places orders or touches `trading.db`:
@@ -224,7 +239,8 @@ first_ai_agents/
 │   ├── config/
 │   │   ├── agents.yaml        # Agent roles, goals, and backstories
 │   │   ├── tasks.yaml         # Task descriptions and agent assignments
-│   │   └── risk_limits.yaml   # Hard limits enforced by the Risk Monitor
+│   │   ├── risk_limits.yaml   # Hard limits enforced by the Risk Monitor
+│   │   └── watchlist.yaml     # Tickers and settings for daily runs
 │   ├── tools/
 │   │   └── custom_tool.py     # yfinance and Alpaca tool definitions
 │   ├── app.py                 # Streamlit web dashboard (layout)
@@ -233,6 +249,7 @@ first_ai_agents/
 │   ├── crew.py                # Crew assembly and agent/task wiring
 │   ├── database.py            # SQLite schema and read/write helpers
 │   ├── monitor.py             # Rule-based Risk Monitor
+│   ├── watchlist.py           # Daily runs over the watchlist (run_watchlist)
 │   ├── performance.py         # Scores past signals against market prices
 │   ├── signals.py             # Reads the Advisor's TRADE SIGNAL and SENTIMENT lines
 │   └── main.py                # Entry point with user input prompts

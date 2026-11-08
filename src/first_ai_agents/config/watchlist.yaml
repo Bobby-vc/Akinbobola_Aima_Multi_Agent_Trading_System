@@ -1,0 +1,16 @@
+# Tickers the agents analyze on each scheduled run (run_watchlist).
+# Each run is saved and scored on the dashboard's Performance tab.
+tickers:
+  - NVDA
+  - AAPL
+  - MSFT
+  - TSLA
+  - AMD
+
+experience_level: intermediate
+
+# Orders are blocked unless the Advisor's confidence is at least this (0 to 1)
+confidence_threshold: 0.7
+
+# {ticker} is replaced with each ticker
+question: "Is {ticker} a good trade right now?"

@@ -3,6 +3,9 @@
 # Local SQLite database
 trading.db
 
+# Agent output from scheduled watchlist runs
+logs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

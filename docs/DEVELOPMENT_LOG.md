@@ -19,7 +19,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 4, 2026 | Test suite added; leftover files removed | `db9559a` |
 | Nov 4, 2026 | Deprecated `datetime.utcnow()` replaced | `24acc9b` |
 | Nov 4, 2026 | Confidence threshold enforced | `a747b46` |
-| Nov 5, 2026 | Signal Performance tab | (this change) |
+| Nov 5, 2026 | Signal Performance tab | `a2e7190` |
+| Nov 7, 2026 | Daily watchlist runs | (this change) |
 
 ---
 
@@ -173,6 +174,18 @@ Added a "Rule-Based Guardrails Around a Probabilistic Model" subsection to the R
 - Tests: 18 new tests (96 in total), including scoring on price series with known answers, the entry-time rules, the Wilson interval against a published value, and the tab itself with offline prices.
 
 **Note:** The tab needs real runs to say anything. At the time it was added, `trading.db` had no runs, so building a sample of 20 or more signals is the next step.
+
+---
+
+## 13. Daily watchlist runs (November 7, 2026)
+
+**Why:** The Performance tab needs 20 or more real signals to mean anything, and running the agents by hand every day is easy to forget.
+
+**What changed:**
+- `watchlist.py` (new) and the `run_watchlist` command: runs the agents over the tickers in `config/watchlist.yaml` (NVDA, AAPL, MSFT, TSLA, and AMD to start), one at a time. It skips days the market is closed, using Alpaca's calendar, and tickers that already ran that day, so running it twice does not double-count. One failing ticker does not stop the rest. The console gets one line per ticker (for example `BUY 0.86 -> buy 5 accepted`); the agents' full output goes to `logs/watchlist-<date>.log`, which is not committed.
+- Tests: 9 new tests (105 in total) with a fake crew and market calendar.
+
+**Finding:** The first real run through the command failed because OpenAI rejected the API key in `.env` (error 401). That explains why `trading.db` had no runs: every run since the key stopped working failed at the Advisor's first model call, before anything could be saved. The key has to be replaced before any runs can be collected.
 
 ---
 
