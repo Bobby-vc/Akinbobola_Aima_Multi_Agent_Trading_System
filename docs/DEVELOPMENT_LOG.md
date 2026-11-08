@@ -20,7 +20,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 4, 2026 | Deprecated `datetime.utcnow()` replaced | `24acc9b` |
 | Nov 4, 2026 | Confidence threshold enforced | `a747b46` |
 | Nov 5, 2026 | Signal Performance tab | `a2e7190` |
-| Nov 7, 2026 | Daily watchlist runs | (this change) |
+| Nov 7, 2026 | Daily watchlist runs | `e96e21c` |
+| Nov 7, 2026 | Project tailored to ITAI 3378 Finance in AI | (this change) |
 
 ---
 
@@ -189,6 +190,19 @@ Added a "Rule-Based Guardrails Around a Probabilistic Model" subsection to the R
 
 ---
 
+## 14. Tailored to ITAI 3378 Finance in AI (November 7, 2026)
+
+**Why:** The project is now for a finance course rather than the deep learning course it started in.
+
+**What changed:**
+- `README.md`: the Deep Learning Connections section was replaced with Finance Concepts (separating research, execution, and risk; pre-trade risk controls; valuation, momentum, and sentiment signals; confidence thresholds and calibration; measuring performance without look-ahead bias and against a benchmark; order reconciliation; and known limitations). The course line now reads ITAI 3378 — Finance in AI.
+- `config/agents.yaml`: the Advisor is now an equity research analyst and the Trader an execution trader. Their old descriptions claimed transformer-based reasoning and "a trained LSTM model", which do not exist in this project; telling the Trader it had a forecasting model risked it inventing predictions. The Trader is now told it does not forecast and that a risk desk checks every order.
+- Removed `REFLECTION.md` (written for the deep learning course) and `knowledge/user_preference.txt` (CrewAI's sample file, never used).
+
+Earlier entries in this log are kept as they happened.
+
+---
+
 ## How the changes were tested
 
 The checks below are now part of the test suite in `tests/` (see step 9).
@@ -203,7 +217,7 @@ The checks below are now part of the test suite in `tests/` (see step 9).
 
 ## Known limitations and possible next steps
 
-- **ChromaDB / RAG** from the original blueprint is still not built.
+- **SEC filings are not used yet.** Retrieving 10-K and 10-Q passages (for example with ChromaDB) would give the Advisor fundamentals beyond price and headlines.
 - **Older runs show less detail.** Runs saved before November 4, 2026 have no start time, so their trades and monitor events cannot be matched to them, and their Trader and Monitor cards say "not recorded".
 - **Agent logs are not saved.** The dashboard keeps them only for runs made since the page was opened.
 - **Order size is fixed** at 5 shares in `tasks.yaml`; it does not scale with confidence.

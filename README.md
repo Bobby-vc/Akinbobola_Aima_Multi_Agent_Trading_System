@@ -2,6 +2,8 @@
 
 **Akinbobola Akinpelu** & **Aima Ayaz**
 
+ITAI 3378 — Finance in AI
+
 
 ---
 Demo: https://drive.google.com/file/d/1VLG0AVz0deRrmIlhUtg4bDtiqcClM9aq/view?usp=drive_link
@@ -15,7 +17,7 @@ A multi-agent AI system that combines natural language understanding with quanti
 - **Agent 2 — The Trader**: Receives the Advisor's trade signal, checks the current portfolio, and executes a paper trade via the Alpaca Markets API if confidence is sufficient.
 - **Agent 3 — The Risk Monitor**: A rule-based agent with no LLM. It blocks any order that breaks a hard risk limit before it reaches Alpaca, and after each run it updates order statuses and flags risky positions.
 
-The two agents communicate through a shared task pipeline managed by CrewAI, mirroring how real financial firms separate research and execution desks.
+The agents work as a pipeline managed by CrewAI, mirroring how trading firms separate research, execution, and risk (see [Finance Concepts](#finance-concepts)).
 
 ---
 
@@ -74,24 +76,38 @@ The limits live in `src/first_ai_agents/config/risk_limits.yaml`:
 
 ---
 
-## Deep Learning Connections
+## Finance Concepts
 
-This project directly applies several deep learning concepts from ITAI 2376:
+The project applies several ideas from ITAI 3378 Finance in AI and from how trading firms are organized.
 
-**Transformers & Self-Attention**
-Both LLM agents, the Advisor and the Trader, are powered by GPT-4o, a large language model built on the Transformer architecture. The self-attention mechanism allows the model to weigh relationships across the entire context window, connecting a user's question, live price data, and news headlines simultaneously to generate a coherent, context-aware response. This is the core of why the Advisor can calibrate its recommendation to a beginner vs. an advanced investor using the same underlying data.
+**Separating research, execution, and risk**
+Trading firms keep the people who generate trade ideas apart from the people who execute them, and both apart from an independent risk function, so no single desk can act on its own view unchecked. AIMA follows the same structure: the Advisor is the research desk, the Trader is the execution desk, and the Risk Monitor is the risk desk. The Risk Monitor applies fixed rules rather than judgment, so neither LLM agent can talk its way past it.
 
-**LLM Reasoning Loop (Plan → Act → Observe → Respond)**
-The agents follow the ReAct (Reasoning + Acting) pattern, which maps directly to the reasoning loop covered in the course. For each query, the Advisor plans what data it needs, acts by calling the yfinance tools, observes the returned prices and headlines, and then responds with a structured recommendation and trade signal. The Trader repeats the same loop; checking the portfolio, deciding whether confidence is high enough, and acting on or holding the signal. CrewAI's task pipeline enforces this loop explicitly.
+**Pre-trade risk controls**
+In the US, broker-dealers that send orders to the market must check them against risk limits first (the SEC's Market Access Rule, Rule 15c3-5). The Risk Monitor applies the same kinds of checks before any order reaches Alpaca: a maximum order size, a daily order limit, a cap on how much cash one buy can use, a concentration limit that keeps any one stock under 10% of the portfolio, and no short selling. It also blocks any order that does not match the research signal behind it.
 
-**Prompt Engineering as Model Steering**
-Agent behavior is defined through carefully structured system prompts in `agents.yaml`. This is applied prompt engineering, using natural language instructions to constrain the model's role, tone, and output format without any weight updates. The Advisor is steered to produce a sentiment summary, a plain-language recommendation, and a structured trade signal in a single response. This reflects how Transformer models are guided through instruction-following rather than fine-tuning for every use case.
+**Signals from valuation, momentum, and sentiment**
+The Advisor combines three classic inputs: valuation (the P/E ratio), price momentum (recent closes and where the price sits in its 52-week range), and news sentiment. Reading sentiment from news is one of the main uses of AI in finance, because news can change how investors value a company well before it shows up in reported results.
 
-**Embeddings & Semantic Understanding**
-Internally, GPT-4o converts all inputs: user questions, news headlines, and price summaries, into high-dimensional embeddings before processing. This enables the model to recognize semantic similarity across different phrasings of the same intent, such as treating "Is NVDA worth buying?" and "Should I invest in Nvidia?" as equivalent queries. While embeddings are not explicitly exposed in this project (no ChromaDB or vector store), they are the mechanism behind the model's language understanding at every step.
+**Confidence thresholds and calibration**
+Every signal carries a confidence score from 0 to 1, and only signals at or above the threshold are traded. Raising the threshold means fewer trades that should be more reliable; lowering it means more trades and more noise. That trade-off only works if the scores are calibrated, meaning signals rated 0.8 are right about 80% of the time. The Performance tab measures this directly, and compares the hit rate of signals the threshold let through with the ones it held back.
 
-**Rule-Based Guardrails Around a Probabilistic Model**
-The Risk Monitor is the one agent in the system with no neural network. It is a simple reflex agent: it observes the proposed order and the current portfolio, then applies fixed condition-action rules from `risk_limits.yaml`, such as blocking any buy that would grow one position past 10% of the portfolio. This design responds to a core property of LLMs: they generate output by sampling from a probability distribution over tokens, so the same input can produce different answers, and prompt engineering steers the model's behavior without guaranteeing it. A Trader that has been told to buy 5 shares could still request 500. Instead of trusting the model to follow its instructions, the system enforces the limits in code that runs before any order reaches Alpaca, and the same order always gets the same decision. Pairing a flexible learned model with a small set of hard symbolic rules is a common pattern for deploying LLM agents where mistakes have a real cost, and it mirrors how trading firms separate the strategy desk from independent risk controls.
+**Measuring performance honestly**
+Signals are scored the way a fund would evaluate a strategy:
+- **No look-ahead bias:** each signal is priced at the first market close after it was made, never at an earlier price.
+- **Adjusted prices:** split- and dividend-adjusted closes, so corporate actions do not distort returns.
+- **Benchmark-relative returns:** every result is compared with the S&P 500 (SPY) over the same days, since gaining 2% while the market gains 3% is not skill.
+- **Statistical uncertainty:** hit rates come with 95% confidence intervals. With only 10 signals, a 60% hit rate is still consistent with a coin flip, so the dashboard warns until at least 20 signals have been scored.
+
+**Order lifecycle and reconciliation**
+A market order is accepted by the broker, then filled, canceled, or rejected. After each run, the Risk Monitor reconciles the local records with Alpaca, recording each order's final status and fill price, the way a back office matches internal records against the broker's.
+
+**Known limitations**
+- Results use closing prices and ignore transaction costs and slippage.
+- Every order is a fixed 5 shares; position size does not scale with confidence or volatility.
+- The watchlist is a small, hand-picked set of large technology stocks, so results may not generalize to other stocks or market conditions.
+- LLM output varies between runs, so the same question can produce a different signal.
+- Market data comes from Yahoo Finance through yfinance, which is suitable for education but not licensed for commercial use.
 
 ---
 
@@ -100,7 +116,7 @@ The Risk Monitor is the one agent in the system with no neural network. It is a 
 | Tool | Purpose |
 |------|---------|
 | CrewAI | Multi-agent orchestration |
-| OpenAI GPT-4o | Core LLM for both agents |
+| OpenAI GPT-4o | LLM for the Advisor and Trader |
 | yfinance | Live stock price data and news headlines |
 | Alpaca Markets API | Paper trade execution (simulated, no real money) |
 | Streamlit | Web dashboard for running analyses and viewing history |
