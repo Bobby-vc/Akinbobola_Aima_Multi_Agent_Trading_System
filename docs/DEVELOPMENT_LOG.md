@@ -27,7 +27,7 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 8, 2026 | SEC filings search with ChromaDB | `52a484b` |
 | Nov 8, 2026 | Product plan for a subscription education tool | `c41ae0f` |
 | Nov 8, 2026 | Phase 1: cost per run, simulated portfolios, per-run state | `925847d` |
-| Nov 8, 2026 | Phase 1: Google sign-in and a practice portfolio per user | (this change) |
+| Nov 8, 2026 | Phase 1: Google sign-in and a practice portfolio per user | `63fcc93` |
 
 ---
 
