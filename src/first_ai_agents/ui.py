@@ -79,14 +79,6 @@ header[data-testid="stHeader"] { background: transparent; }
 .aima-limit { background: var(--aima-surface); border: 1px solid var(--aima-border); border-radius: 10px; padding: 12px 14px; }
 .aima-limit .aima-value { font-size: 1.25rem; }
 
-.aima-login { max-width: 600px; margin: 7vh auto 22px; padding: 30px 34px; background: var(--aima-surface);
-  border: 1px solid var(--aima-border); border-top: 3px solid #58A6FF; border-radius: 14px; }
-.aima-login h1 { font-size: 1.6rem; line-height: 1.25; color: var(--aima-text); margin: 18px 0 10px; padding: 0; }
-.aima-login p, .aima-login li { font-size: .92rem; line-height: 1.55; color: var(--aima-muted); }
-.aima-login ul { padding-left: 18px; margin: 12px 0; }
-.aima-login li b { color: var(--aima-text); font-weight: 600; }
-.aima-login .aima-fine { font-size: .74rem; margin: 14px 0 0; }
-
 @media (max-width: 760px) {
   .aima-pipeline { flex-direction: column; }
   .aima-arrow { transform: rotate(90deg); }
@@ -118,11 +110,6 @@ def _missing(value) -> bool:
 
 def fmt_money(value) -> str:
     return "—" if _missing(value) else f"${float(value):,.2f}"
-
-
-def fmt_cost(value) -> str:
-    """Run costs are cents, so they get more precision than other money."""
-    return "—" if _missing(value) else f"${float(value):,.3f}"
 
 
 def fmt_pct(value, signed: bool = True) -> str:
@@ -212,38 +199,11 @@ def sparkline_svg(values: list[float], width: int = 84, height: int = 22) -> str
             f'alt="5-day price trend">')
 
 
-def account_label(account: str) -> str:
-    return "PRACTICE PORTFOLIO" if account.startswith("sim:") else "PAPER TRADING"
-
-
-def account_name(account: str) -> str:
-    """How the account switcher names an account."""
-    return "My practice portfolio" if account.startswith("sim:") else "AIMA track record (Alpaca)"
-
-
-def login_html() -> str:
-    return (
-        '<div class="aima-login">'
-        '<div class="aima-brand">AIMA<small>Multi-Agent Trading System</small></div>'
-        '<h1>Learn investing by watching AI analysts work.</h1>'
-        '<p>Ask about a stock. A research desk reads its live price, news, and SEC filings, an execution '
-        'desk decides whether to trade, and a risk desk checks every order. Then practice with your own '
-        'portfolio of $100,000 in virtual cash.</p>'
-        '<ul>'
-        '<li><b>See the reasoning:</b> every signal comes with the evidence and a confidence score.</li>'
-        '<li><b>Practice safely:</b> trades happen in a simulated portfolio. No real money is involved.</li>'
-        '<li><b>Check the record:</b> track how past signals actually turned out against the S&amp;P 500.</li>'
-        '</ul>'
-        '<p class="aima-fine">Educational tool only. Not financial advice.</p>'
-        '</div>'
-    )
-
-
-def topbar_html(snapshots, account: str = "alpaca") -> str:
+def topbar_html(snapshots) -> str:
     parts = ['<div class="aima-topbar">',
              '<div class="aima-brand">AIMA<small>Multi-Agent Trading System</small></div>']
     if not snapshots:
-        parts.append('<div class="aima-note">No account data yet. Click <b>Sync</b> to load it.</div>')
+        parts.append('<div class="aima-note">No account data yet. Click <b>Sync</b> to load it from Alpaca.</div>')
     else:
         latest = snapshots[0]
         value = float(latest["portfolio_value"])
@@ -263,7 +223,7 @@ def topbar_html(snapshots, account: str = "alpaca") -> str:
         ):
             parts.append(f'<div class="aima-kpi"><span class="aima-label">{label}</span>'
                          f'<span class="aima-value">{body}</span></div>')
-    parts.append(f'<span class="aima-paper">{account_label(account)}</span></div>')
+    parts.append('<span class="aima-paper">PAPER TRADING</span></div>')
     return "".join(parts)
 
 

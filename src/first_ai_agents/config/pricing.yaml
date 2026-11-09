@@ -1,8 +1,0 @@
-# Estimated OpenAI prices, in US dollars per 1 million tokens, used to
-# estimate what each run costs. Keys match the llm setting in agents.yaml.
-# These are estimates: check https://openai.com/api/pricing and update them
-# if OpenAI's prices change.
-openai/gpt-4o:
-  input: 2.50
-  cached_input: 1.25
-  output: 10.00

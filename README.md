@@ -136,10 +136,6 @@ APCA_API_KEY_ID=your_alpaca_key_here
 APCA_API_SECRET_KEY=your_alpaca_secret_here
 APCA_API_BASE_URL=https://paper-api.alpaca.markets
 SEC_USER_AGENT=AIMA research tool your-name@example.com
-# Optional: use a simulated practice portfolio instead of the Alpaca account
-# AIMA_ACCOUNT=sim:your-name
-# Optional, with Google sign-in: emails that may also open the Alpaca account
-# AIMA_ADMIN_EMAILS=you@example.com
 ```
 
 Your Alpaca API keys can be found in your Alpaca dashboard under API Keys. Use the paper trading keys, not live trading.
@@ -192,34 +188,6 @@ The Performance tab scores every past signal against what the market actually di
 - **Uncertainty:** hit rates come with a 95% Wilson confidence interval, and the tab warns when fewer than 20 signals have been scored.
 
 It also shows a calibration chart (do 0.8-confidence signals hit more often than 0.6 ones?) and compares the hit rate of signals that cleared the confidence threshold with those it filtered out.
-
-### Accounts: Alpaca or a Simulated Portfolio
-
-Orders go to one of two kinds of account, chosen by `AIMA_ACCOUNT` in `.env`:
-
-- `alpaca` (the default): the shared Alpaca paper trading account, which builds AIMA's own track record.
-- `sim:<name>`, for example `sim:aima`: a simulated practice portfolio kept in the database. It starts with $100,000 of virtual cash, fills market orders immediately at the latest trade price, and rejects buys it cannot afford and sales of shares it does not hold. This is the basis for per-learner portfolios.
-
-Every run, trade, snapshot, and Risk Monitor event is saved with its account, and the dashboard and watchlist only show and count the active account's records. The daily trade limit also applies per account. Each run has its own state (broker, threshold, and the Advisor's signal), so several runs can happen at once without affecting each other.
-
-### Sign-in with Google
-
-The dashboard can require sign-in with a Google account (Streamlit's built-in `st.login`). It turns on when `.streamlit/secrets.toml` has an `[auth]` section; without that file, the dashboard runs for one local user as before.
-
-- Everyone who signs in gets their own practice portfolio (`sim:user-<id>`) with $100,000 of virtual cash, and sees only their own runs, trades, and events.
-- People whose Google email is listed in `AIMA_ADMIN_EMAILS` in `.env` (comma-separated) can also switch to the shared Alpaca account from the account menu.
-- Users are stored in the `users` table by Google's permanent account id, so a changed email keeps the same portfolio.
-
-To set it up:
-
-1. In [Google Cloud Console](https://console.cloud.google.com), create a project, then go to **APIs & Services > OAuth consent screen** and set it up as **External**. While the app is in **Testing**, only the Google accounts added as test users can sign in.
-2. Go to **APIs & Services > Credentials > Create credentials > OAuth client ID**, choose **Web application**, and add `http://localhost:8501/oauth2callback` as an **Authorized redirect URI**.
-3. Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and fill in the client ID, client secret, and a random `cookie_secret`. The file is excluded from the repository.
-4. Restart the dashboard.
-
-### Cost per Run
-
-Each run saves its model, token counts, and an estimated cost in US dollars, priced from `src/first_ai_agents/config/pricing.yaml` (update it if OpenAI's prices change). The Run History tab shows each run's cost and the average. With `gpt-4o`, a typical run has cost about $0.02.
 
 ### Daily Watchlist Runs
 
@@ -276,13 +244,11 @@ Run history is stored in a local SQLite file, `trading.db`, in the project root.
 
 | Table | Contents |
 |-------|----------|
-| `crew_runs` | Each run's question, ticker, experience level, Advisor analysis, trade signal, account, token usage, and estimated cost |
+| `crew_runs` | Each run's question, ticker, experience level, Advisor analysis, and trade signal |
 | `trade_history` | Each paper trade: ticker, quantity, side, Alpaca order ID, status, and fill price (blocked orders included) |
 | `portfolio_snapshots` | Cash, portfolio value, buying power, and open positions at a point in time |
 | `stock_cache` | Recent yfinance price data per ticker (treated as stale after 15 minutes) |
 | `monitor_events` | Every Risk Monitor block, order status change, position alert, and completed check |
-| `sim_accounts`, `sim_positions`, `sim_orders` | Simulated practice portfolios: cash, holdings, and orders |
-| `users` | People who have signed in, and the practice portfolio each one owns |
 
 To browse the data directly, open `trading.db` with [DB Browser for SQLite](https://sqlitebrowser.org) or the `sqlite3` command-line tool.
 
@@ -297,16 +263,12 @@ first_ai_agents/
 │   │   ├── agents.yaml        # Agent roles, goals, and backstories
 │   │   ├── tasks.yaml         # Task descriptions and agent assignments
 │   │   ├── risk_limits.yaml   # Hard limits enforced by the Risk Monitor
-│   │   ├── pricing.yaml       # OpenAI prices used to estimate run costs
 │   │   └── watchlist.yaml     # Tickers and settings for daily runs
 │   ├── tools/
 │   │   └── custom_tool.py     # yfinance and Alpaca tool definitions
 │   ├── app.py                 # Streamlit web dashboard (layout)
 │   ├── ui.py                  # Dashboard components and theme CSS
-│   ├── auth.py                # Google sign-in and which accounts each user can open
-│   ├── broker.py              # Picks the account (Alpaca or simulated); portfolio snapshots
-│   ├── sim_broker.py          # Simulated practice portfolios
-│   ├── usage.py               # Token usage and estimated cost per run
+│   ├── broker.py              # Shared Alpaca client and portfolio snapshots
 │   ├── crew.py                # Crew assembly and agent/task wiring
 │   ├── database.py            # SQLite schema and read/write helpers
 │   ├── monitor.py             # Rule-based Risk Monitor
@@ -316,7 +278,6 @@ first_ai_agents/
 │   ├── signals.py             # Reads the Advisor's TRADE SIGNAL and SENTIMENT lines
 │   └── main.py                # Entry point with user input prompts
 ├── .streamlit/config.toml     # Dashboard theme (colors and fonts)
-├── .streamlit/secrets.toml.example  # Template for the Google sign-in settings
 ├── docs/DEVELOPMENT_LOG.md    # History of changes since the submission
 ├── scripts/run_watchlist.bat  # Launcher for the scheduled daily run
 ├── tests/                     # pytest suite (no real API calls)

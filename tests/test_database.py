@@ -74,10 +74,6 @@ def test_old_databases_gain_new_columns(tmp_path, monkeypatch):
     assert db.get_trades()[0]["order_id"] == "old-1"
     assert db.get_trades()[0]["filled_avg_price"] is None
     assert db.get_crew_runs()[0]["started_at"] is None
-    # Rows from before accounts existed belong to the Alpaca account
-    assert db.get_trades(account="alpaca")[0]["order_id"] == "old-1"
-    assert db.get_crew_runs(account="alpaca")[0]["ticker"] == "MSFT"
-    assert db.get_crew_runs()[0]["cost_usd"] is None
 
 
 def test_timestamps_keep_the_stored_format(temp_db):
@@ -91,19 +87,3 @@ def test_timestamps_keep_the_stored_format(temp_db):
         conn.execute("INSERT INTO stock_cache (ticker, cached_at, data_json) VALUES (?,?,?)",
                      ("OLD", "2026-01-01T00:00:00.000001", '{"formatted": "x"}'))
     assert db.get_cached_stock("OLD") is None  # expired, and no naive/aware TypeError
-
-
-def test_sign_in_creates_each_user_once_with_their_own_account(temp_db):
-    first = db.sign_in_user("https://accounts.google.com", "1001", "lee@example.com", "Lee")
-    again = db.sign_in_user("https://accounts.google.com", "1001", "lee.new@example.com", "Lee L")
-    other = db.sign_in_user("https://accounts.google.com", "2002", "sam@example.com", "Sam")
-
-    assert first["account"] == again["account"] == "sim:user-1"
-    assert again["email"] == "lee.new@example.com" and again["name"] == "Lee L"
-    assert other["account"] == "sim:user-2"
-
-
-def test_the_same_id_from_another_provider_is_another_user(temp_db):
-    a = db.sign_in_user("https://accounts.google.com", "1001")
-    b = db.sign_in_user("https://login.example.com", "1001")
-    assert a["account"] != b["account"]

@@ -11,12 +11,11 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from first_ai_agents import auth, performance, ui
+from first_ai_agents import performance, ui
 from first_ai_agents.database import (
     get_cached_stock, get_crew_run, get_crew_runs, get_monitor_events,
     get_monitor_events_between, get_portfolio_snapshots, get_trades, get_trades_between, utc_now,
 )
-from first_ai_agents.broker import active_account, get_broker, record_portfolio_snapshot
 from first_ai_agents.monitor import DEFAULT_CONFIDENCE_THRESHOLD, load_limits
 from first_ai_agents.signals import parse_signal
 
@@ -30,27 +29,6 @@ st.set_page_config(
 )
 st.html(ui.CSS)
 
-# ── Who is signed in, and which account they see ───────────────────────────────
-USER, ACCOUNTS = None, []
-if not auth.auth_configured():
-    ACCOUNT = active_account()  # sign-in is off: one local user, on the account set in .env
-else:
-    identity = auth.current_identity()
-    if identity is None:
-        st.html(ui.login_html())
-        _, button_col, _ = st.columns([1, 1, 1])
-        if button_col.button("Sign in with Google", icon=":material/login:", type="primary", width="stretch"):
-            st.login()
-        st.stop()
-    # Look the user up once per browser session, not on every click
-    if st.session_state.get("aima_user", {}).get("subject") != str(identity["sub"]):
-        st.session_state["aima_user"] = auth.user_for(identity)
-    USER = st.session_state["aima_user"]
-    ACCOUNTS = auth.accounts_for(USER, identity)
-    if st.session_state.get("aima_account") not in ACCOUNTS:
-        st.session_state["aima_account"] = ACCOUNTS[0]
-    ACCOUNT = st.session_state["aima_account"]
-
 
 @st.cache_data(ttl=3600, show_spinner="Loading price history...")
 def cached_closes(tickers: tuple[str, ...], start: date) -> pd.DataFrame:
@@ -60,8 +38,8 @@ def cached_closes(tickers: tuple[str, ...], start: date) -> pd.DataFrame:
 def load_run_view(run) -> dict:
     """Gathers the trades and monitor events recorded while a run was in progress."""
     start, end = run["started_at"], run["run_at"]
-    trades = get_trades_between(start, end, run["account"]) if start else []
-    events = get_monitor_events_between(start, end, run["account"]) if start else []
+    trades = get_trades_between(start, end) if start else []
+    events = get_monitor_events_between(start, end) if start else []
     stock = get_cached_stock(run["ticker"], max_age_minutes=10**9) if run["ticker"] else None
     return ui.build_run_view(run, trades, events, stock)
 
@@ -72,7 +50,7 @@ def run_crew_live(inputs: dict, slot) -> tuple[Exception | None, str]:
 
     progress = {"completed": 0, "done": False, "error": None}
     logs = StringIO()
-    crew = FirstAiAgents(broker=get_broker(ACCOUNT)).crew()
+    crew = FirstAiAgents().crew()
     crew.task_callback = lambda output: progress.update(completed=progress["completed"] + 1)
 
     def work():
@@ -96,36 +74,18 @@ def run_crew_live(inputs: dict, slot) -> tuple[Exception | None, str]:
 
 
 # ── Top bar — account ──────────────────────────────────────────────────────────
-top_snapshots = get_portfolio_snapshots(limit=2, account=ACCOUNT)
-if not top_snapshots and ACCOUNT.startswith("sim:"):
-    # A new practice portfolio: show its starting cash right away instead of an empty bar
-    with contextlib.suppress(Exception):
-        record_portfolio_snapshot(get_broker(ACCOUNT))
-        top_snapshots = get_portfolio_snapshots(limit=2, account=ACCOUNT)
-
-if USER:
-    bar_col, sync_col, user_col = st.columns([7, 1, 1.4], vertical_alignment="center")
-else:
-    bar_col, sync_col = st.columns([8, 1], vertical_alignment="center")
+bar_col, sync_col = st.columns([8, 1], vertical_alignment="center")
 with bar_col:
-    st.html(ui.topbar_html(top_snapshots, ACCOUNT))
+    st.html(ui.topbar_html(get_portfolio_snapshots(limit=2)))
 with sync_col:
-    sync_help = ("Reprice your practice portfolio at the latest market prices" if ACCOUNT.startswith("sim:")
-                 else "Load the latest account data from Alpaca")
-    if st.button("Sync", icon=":material/sync:", help=sync_help, width="stretch"):
+    if st.button("Sync", icon=":material/sync:", help="Load the latest account data from Alpaca",
+                 width="stretch"):
         try:
-            record_portfolio_snapshot(get_broker(ACCOUNT))
+            from first_ai_agents.broker import get_alpaca_api, record_portfolio_snapshot
+            record_portfolio_snapshot(get_alpaca_api())
             st.rerun()
         except Exception as e:
-            st.error(f"Could not load the account: {e}")
-if USER:
-    with user_col.popover((USER["name"] or USER["email"] or "Account").split()[0],
-                          icon=":material/account_circle:", width="stretch"):
-        st.caption(f"Signed in as {USER['email'] or USER['name']}")
-        if len(ACCOUNTS) > 1:
-            st.radio("Account", ACCOUNTS, format_func=ui.account_name, key="aima_account")
-        if st.button("Sign out", icon=":material/logout:", width="stretch"):
-            st.logout()
+            st.error(f"Could not load the account from Alpaca: {e}")
 
 # ── Question form ──────────────────────────────────────────────────────────────
 with st.form("ask", border=False):
@@ -163,7 +123,7 @@ if submitted:
             },
             pipeline_slot,
         )
-        latest = get_crew_runs(limit=1, account=ACCOUNT)
+        latest = get_crew_runs(limit=1)
         if error or not latest or latest[0]["run_at"] < started:
             st.error(f"The run did not finish: {error or 'it was not saved to the database.'}")
             if logs:
@@ -174,7 +134,7 @@ if submitted:
         st.session_state["selected_run_id"] = latest[0]["id"]
         st.rerun()
 
-runs = get_crew_runs(limit=50, account=ACCOUNT)
+runs = get_crew_runs(limit=50)
 run_ids = [r["id"] for r in runs]
 if run_ids and st.session_state.get("selected_run_id") not in run_ids:
     st.session_state["selected_run_id"] = run_ids[0]
@@ -208,7 +168,7 @@ tab_performance, tab_positions, tab_trades, tab_portfolio, tab_monitor, tab_hist
     ":material/history: Run History",
 ])
 
-snapshots = get_portfolio_snapshots(limit=200, account=ACCOUNT)
+snapshots = get_portfolio_snapshots(limit=200)
 
 with tab_performance:
     st.caption(
@@ -216,7 +176,7 @@ with tab_performance:
         "was made, then scored after 1, 5, and 20 trading days against the S&P 500 (SPY). A BUY counts as "
         "a hit if the stock rose; a SELL if it fell. HOLD signals are not scored."
     )
-    all_runs = get_crew_runs(limit=5000, account=ACCOUNT)
+    all_runs = get_crew_runs(limit=5000)
     if not all_runs:
         st.info("No runs yet. Each signal is scored here once enough trading days have passed.")
     else:
@@ -363,7 +323,7 @@ with tab_positions:
         st.caption(f"As of {ui.fmt_time(snapshots[0]['snapped_at'])}")
 
 with tab_trades:
-    trades = get_trades(limit=200, account=ACCOUNT)
+    trades = get_trades(limit=200)
     if not trades:
         st.info("No trades recorded yet. Run the agents to generate one.")
     else:
@@ -424,8 +384,9 @@ with tab_monitor:
     if r_col.button("Run checks now", icon=":material/policy:", width="stretch"):
         with st.spinner("Checking orders and positions..."):
             try:
+                from first_ai_agents.broker import get_alpaca_api
                 from first_ai_agents.monitor import run_checks
-                findings = run_checks(get_broker(ACCOUNT))
+                findings = run_checks(get_alpaca_api())
                 if findings:
                     for finding in findings:
                         st.warning(finding)
@@ -434,7 +395,7 @@ with tab_monitor:
             except Exception as e:
                 st.error(f"Checks failed: {e}")
 
-    events = get_monitor_events(limit=200, account=ACCOUNT)
+    events = get_monitor_events(limit=200)
     if not events:
         st.info("No monitor events yet. They appear after a run or when you click **Run checks now**.")
     else:
@@ -469,18 +430,10 @@ with tab_history:
                 "Experience": (r["experience"] or "").title(),
                 "Signal": signal["action"] if signal else "—", "Confidence": ui.fmt_confidence(signal),
                 "Threshold": f"{r['threshold']:.2f}" if r["threshold"] is not None else "—",
-                "Cost": ui.fmt_cost(r["cost_usd"]),
             })
         st.dataframe(
             pd.DataFrame(rows).style.map(ui.label_style, subset=["Signal"]),
             hide_index=True, width="stretch",
         )
-        costs = [r["cost_usd"] for r in runs if r["cost_usd"] is not None]
-        if costs:
-            st.caption(f"{len(costs)} runs with cost data · average {ui.fmt_cost(sum(costs) / len(costs))} "
-                       f"per run · {ui.fmt_cost(sum(costs))} in total (estimated from config/pricing.yaml)")
 
-st.caption(
-    ("Simulated practice portfolio" if ACCOUNT.startswith("sim:") else "Paper trading through Alpaca's sandbox")
-    + ". No real money is involved. This is not financial advice."
-)
+st.caption("Paper trading through Alpaca's sandbox. No real money is involved. This is not financial advice.")
