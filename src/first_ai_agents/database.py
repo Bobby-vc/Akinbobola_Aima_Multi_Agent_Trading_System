@@ -102,6 +102,21 @@ def init_db():
                 filled_avg_price    REAL,
                 submitted_at        TEXT NOT NULL
             );
+
+            -- People who sign in (auth.py). Each gets a practice portfolio, "sim:user-<id>".
+            -- issuer and subject are the sign-in provider and its permanent id for the
+            -- person, which stays the same even if their email changes.
+            CREATE TABLE IF NOT EXISTS users (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                issuer          TEXT NOT NULL,
+                subject         TEXT NOT NULL,
+                email           TEXT,
+                name            TEXT,
+                account         TEXT UNIQUE,
+                created_at      TEXT NOT NULL,
+                last_login_at   TEXT,
+                UNIQUE (issuer, subject)
+            );
         """)
         # Columns added after the first release; existing databases need them too
         _add_missing_columns(conn, "trade_history", (("filled_avg_price", "REAL"), ("updated_at", "TEXT")))
@@ -305,6 +320,29 @@ def get_monitor_events_between(start: str, end: str, account: str | None = None)
             f"SELECT * FROM monitor_events WHERE created_at BETWEEN ? AND ?{where} ORDER BY created_at",
             (start, end, *args),
         ).fetchall()
+
+
+# --- users ---
+
+def sign_in_user(issuer: str, subject: str, email: str | None = None, name: str | None = None) -> dict:
+    """Finds the user with this sign-in identity, or creates them with their own
+    practice portfolio account, and records the sign-in."""
+    now = utc_now().isoformat()
+    with get_conn() as conn:
+        # Take the write lock first, so two tabs signing in at once cannot both create the user
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT id FROM users WHERE issuer=? AND subject=?", (issuer, subject)).fetchone()
+        if row is None:
+            user_id = conn.execute(
+                "INSERT INTO users (issuer, subject, email, name, created_at, last_login_at) VALUES (?,?,?,?,?,?)",
+                (issuer, subject, email, name, now, now),
+            ).lastrowid
+            conn.execute("UPDATE users SET account=? WHERE id=?", (f"sim:user-{user_id}", user_id))
+        else:
+            user_id = row["id"]
+            conn.execute("UPDATE users SET email=?, name=?, last_login_at=? WHERE id=?",
+                         (email, name, now, user_id))
+        return dict(conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone())
 
 
 init_db()

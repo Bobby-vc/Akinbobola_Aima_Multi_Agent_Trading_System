@@ -26,7 +26,8 @@ A record of how the AI Investment Multi-Agent System (AIMA) has changed since th
 | Nov 7, 2026 | Daily schedule set up | `008cfc9` |
 | Nov 8, 2026 | SEC filings search with ChromaDB | `52a484b` |
 | Nov 8, 2026 | Product plan for a subscription education tool | `c41ae0f` |
-| Nov 8, 2026 | Phase 1: cost per run, simulated portfolios, per-run state | (this change) |
+| Nov 8, 2026 | Phase 1: cost per run, simulated portfolios, per-run state | `925847d` |
+| Nov 8, 2026 | Phase 1: Google sign-in and a practice portfolio per user | (this change) |
 
 ---
 
@@ -258,6 +259,20 @@ The first three steps of Phase 1 in `docs/PRODUCT_PLAN.md`.
 **Filings fix found in testing:** CrewAI runs an agent's tool calls in parallel threads, and two threads opening ChromaDB at once failed ("Could not connect to tenant"), so some filings searches returned nothing. The index is now opened once, behind a lock. The Advisor's output now requires a "From the SEC filings" section with citations, and its confidence rubric includes the filings.
 
 **Tests:** 19 new tests (138 in total), including two crews running at once with separate portfolios, an order flowing from the Trader's tool through the Risk Monitor into a simulated fill, simultaneous orders not spending the same cash, and parallel tool calls sharing one index.
+
+---
+
+## 19. Google sign-in and per-user portfolios (November 8, 2026)
+
+The last step of Phase 1 in `docs/PRODUCT_PLAN.md`.
+
+**Sign-in:** the dashboard uses Streamlit's built-in `st.login` with Google (the `Authlib` package was added). It is on when `.streamlit/secrets.toml` has an `[auth]` section, and visitors who are not signed in see only a sign-in page. Without that file the dashboard works as before, for one local user, so the tests and local use need no Google setup.
+
+**Per-user data:** a new `users` table records each person by Google's issuer and permanent account id (`sub`), not by email, and gives them a practice portfolio, `sim:user-<id>`, with $100,000 of virtual cash. Because every record was already tagged with its account in step 18, each user sees only their own runs, trades, snapshots, and events, and the daily trade limit applies to each user separately. A new portfolio shows its starting cash right away.
+
+**Admins:** emails in `AIMA_ADMIN_EMAILS` can also switch to the shared Alpaca account from the account menu. Only emails Google reports as verified count. The daily watchlist still runs on the Alpaca account.
+
+**Tests:** 8 new tests (146 in total), including signed-out visitors seeing no data, a first sign-in creating a portfolio, runs saving to the signed-in user's portfolio, two users not seeing each other's runs, and an unverified admin email being refused.
 
 ---
 

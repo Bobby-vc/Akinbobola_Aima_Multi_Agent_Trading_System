@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from first_ai_agents import performance, ui
+from first_ai_agents import auth, performance, ui
 from first_ai_agents.database import (
     get_cached_stock, get_crew_run, get_crew_runs, get_monitor_events,
     get_monitor_events_between, get_portfolio_snapshots, get_trades, get_trades_between, utc_now,
@@ -30,7 +30,26 @@ st.set_page_config(
 )
 st.html(ui.CSS)
 
-ACCOUNT = active_account()
+# ── Who is signed in, and which account they see ───────────────────────────────
+USER, ACCOUNTS = None, []
+if not auth.auth_configured():
+    ACCOUNT = active_account()  # sign-in is off: one local user, on the account set in .env
+else:
+    identity = auth.current_identity()
+    if identity is None:
+        st.html(ui.login_html())
+        _, button_col, _ = st.columns([1, 1, 1])
+        if button_col.button("Sign in with Google", icon=":material/login:", type="primary", width="stretch"):
+            st.login()
+        st.stop()
+    # Look the user up once per browser session, not on every click
+    if st.session_state.get("aima_user", {}).get("subject") != str(identity["sub"]):
+        st.session_state["aima_user"] = auth.user_for(identity)
+    USER = st.session_state["aima_user"]
+    ACCOUNTS = auth.accounts_for(USER, identity)
+    if st.session_state.get("aima_account") not in ACCOUNTS:
+        st.session_state["aima_account"] = ACCOUNTS[0]
+    ACCOUNT = st.session_state["aima_account"]
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading price history...")
@@ -77,17 +96,36 @@ def run_crew_live(inputs: dict, slot) -> tuple[Exception | None, str]:
 
 
 # ── Top bar — account ──────────────────────────────────────────────────────────
-bar_col, sync_col = st.columns([8, 1], vertical_alignment="center")
+top_snapshots = get_portfolio_snapshots(limit=2, account=ACCOUNT)
+if not top_snapshots and ACCOUNT.startswith("sim:"):
+    # A new practice portfolio: show its starting cash right away instead of an empty bar
+    with contextlib.suppress(Exception):
+        record_portfolio_snapshot(get_broker(ACCOUNT))
+        top_snapshots = get_portfolio_snapshots(limit=2, account=ACCOUNT)
+
+if USER:
+    bar_col, sync_col, user_col = st.columns([7, 1, 1.4], vertical_alignment="center")
+else:
+    bar_col, sync_col = st.columns([8, 1], vertical_alignment="center")
 with bar_col:
-    st.html(ui.topbar_html(get_portfolio_snapshots(limit=2, account=ACCOUNT), ACCOUNT))
+    st.html(ui.topbar_html(top_snapshots, ACCOUNT))
 with sync_col:
-    if st.button("Sync", icon=":material/sync:", help="Load the latest account data from Alpaca",
-                 width="stretch"):
+    sync_help = ("Reprice your practice portfolio at the latest market prices" if ACCOUNT.startswith("sim:")
+                 else "Load the latest account data from Alpaca")
+    if st.button("Sync", icon=":material/sync:", help=sync_help, width="stretch"):
         try:
             record_portfolio_snapshot(get_broker(ACCOUNT))
             st.rerun()
         except Exception as e:
-            st.error(f"Could not load the account from Alpaca: {e}")
+            st.error(f"Could not load the account: {e}")
+if USER:
+    with user_col.popover((USER["name"] or USER["email"] or "Account").split()[0],
+                          icon=":material/account_circle:", width="stretch"):
+        st.caption(f"Signed in as {USER['email'] or USER['name']}")
+        if len(ACCOUNTS) > 1:
+            st.radio("Account", ACCOUNTS, format_func=ui.account_name, key="aima_account")
+        if st.button("Sign out", icon=":material/logout:", width="stretch"):
+            st.logout()
 
 # ── Question form ──────────────────────────────────────────────────────────────
 with st.form("ask", border=False):

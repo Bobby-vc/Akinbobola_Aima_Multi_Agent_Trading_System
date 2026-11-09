@@ -9,7 +9,7 @@ from streamlit.testing.v1 import AppTest
 
 import first_ai_agents.crew as crew_module
 import first_ai_agents.database as db
-from first_ai_agents import performance, ui
+from first_ai_agents import auth, performance, ui
 
 APP = str(Path(__file__).parents[1] / "src" / "first_ai_agents" / "app.py")
 
@@ -29,6 +29,8 @@ ACCOUNT = "sim:test"
 @pytest.fixture(autouse=True)
 def simulated_account(monkeypatch):
     monkeypatch.setenv("AIMA_ACCOUNT", ACCOUNT)
+    # Sign-in stays off unless a test turns it on, even if .streamlit/secrets.toml exists
+    monkeypatch.setattr(auth, "auth_configured", lambda: False)
 
 
 class FakeCrew:
@@ -184,3 +186,106 @@ def test_dashboard_shows_only_the_active_account(temp_db, monkeypatch):
     assert "About AMD?" in page and "PRACTICE PORTFOLIO" in page
     assert "About TSLA?" not in page and "About NVDA?" not in page
     assert any("average $0.042 per run" in c.value for c in at.caption)
+
+
+# ── Sign-in ────────────────────────────────────────────────────────────────────
+
+GOOGLE = "https://accounts.google.com"
+
+
+def google_identity(sub="1001", email="lee@example.com", name="Lee Learner", verified=True):
+    return {"iss": GOOGLE, "sub": sub, "email": email, "name": name, "email_verified": verified,
+            "is_logged_in": True}
+
+
+@pytest.fixture
+def signed_in(temp_db, monkeypatch):
+    """Turns sign-in on; set_identity(None) means nobody is signed in."""
+    monkeypatch.setattr(auth, "auth_configured", lambda: True)
+    monkeypatch.setattr(crew_module, "FirstAiAgents", FakeAgents)
+    monkeypatch.setattr(FakeCrew, "error", None)
+    monkeypatch.setattr(performance, "load_daily_closes", lambda tickers, start: FAKE_CLOSES)
+    monkeypatch.delenv("AIMA_ADMIN_EMAILS", raising=False)
+    st.cache_data.clear()
+    current = {"identity": google_identity()}
+    monkeypatch.setattr(auth, "current_identity", lambda: current["identity"])
+    return lambda identity: current.update(identity=identity)
+
+
+def page_text(at):
+    return " ".join(str(e.proto) for e in at.get("html"))
+
+
+def log_run(ticker, account):
+    db.log_crew_run(question=f"About {ticker}?", ticker=ticker, experience="beginner", threshold=0.7,
+                    analysis=f"TRADE SIGNAL: HOLD {ticker} | Confidence: 0.5", trade_signal="",
+                    raw_output="", started_at=db.utc_now().isoformat(), account=account)
+
+
+def test_signed_out_visitors_see_only_the_sign_in_page(signed_in):
+    signed_in(None)
+    log_run("TSLA", "alpaca")
+    at = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert not at.exception
+    assert "Learn investing by watching AI analysts work." in page_text(at)
+    assert [b.label for b in at.button] == ["Sign in with Google"]
+    assert "About TSLA?" not in page_text(at) and not at.text_input
+
+
+def test_first_sign_in_creates_a_practice_portfolio(signed_in):
+    log_run("TSLA", "alpaca")
+    at = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert not at.exception
+    with db.get_conn() as conn:
+        users = [dict(r) for r in conn.execute("SELECT * FROM users")]
+    assert len(users) == 1
+    assert users[0]["account"] == "sim:user-1" and users[0]["email"] == "lee@example.com"
+    page = page_text(at)
+    assert "PRACTICE PORTFOLIO" in page and "$100,000.00" in page
+    assert "About TSLA?" not in page
+    assert not at.radio  # learners have one account, so there is nothing to switch
+    assert "Sign out" in [b.label for b in at.button]
+
+
+def test_runs_are_saved_to_the_signed_in_users_portfolio(signed_in):
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    at = submit(at, "Should I sell AMD?", "AMD")
+
+    assert not at.exception
+    assert db.get_crew_runs()[0]["account"] == "sim:user-1"
+
+
+def test_each_user_sees_only_their_own_runs(signed_in):
+    signed_in(google_identity(sub="1001", email="lee@example.com"))
+    AppTest.from_file(APP, default_timeout=60).run()
+    signed_in(google_identity(sub="2002", email="sam@example.com", name="Sam"))
+    AppTest.from_file(APP, default_timeout=60).run()
+    log_run("AMD", "sim:user-1")
+    log_run("NVDA", "sim:user-2")
+
+    at = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert "About NVDA?" in page_text(at) and "About AMD?" not in page_text(at)
+
+
+def test_admins_can_switch_to_the_alpaca_account(signed_in, monkeypatch):
+    monkeypatch.setenv("AIMA_ADMIN_EMAILS", "owner@example.com")
+    signed_in(google_identity(email="Owner@example.com"))
+    log_run("TSLA", "alpaca")
+    at = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert at.radio[0].options == ["My practice portfolio", "AIMA track record (Alpaca)"]
+    assert "About TSLA?" not in page_text(at)
+    at.radio[0].set_value("alpaca").run()
+    assert not at.exception
+    assert "About TSLA?" in page_text(at) and "PAPER TRADING" in page_text(at)
+
+
+def test_an_unverified_admin_email_is_not_trusted(signed_in, monkeypatch):
+    monkeypatch.setenv("AIMA_ADMIN_EMAILS", "owner@example.com")
+    signed_in(google_identity(email="owner@example.com", verified=False))
+    at = AppTest.from_file(APP, default_timeout=60).run()
+
+    assert not at.exception and not at.radio
