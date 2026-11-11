@@ -6,7 +6,6 @@ ITAI 3378 — Finance in AI
 
 
 ---
-Demo: https://drive.google.com/file/d/1VLG0AVz0deRrmIlhUtg4bDtiqcClM9aq/view?usp=drive_link
 
 
 ## Overview
